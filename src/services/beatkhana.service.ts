@@ -1,7 +1,11 @@
 import { createPublicKey, verify as verifySignature, type KeyObject } from "node:crypto";
 import { config, assertOAuthConfigured } from "../config";
 import { fetchJson } from "./httpJson.service";
-import type { BeatKhanaTokenClaims, BeatKhanaTokenResponse } from "./beatkhana.types";
+import type {
+	BeatKhanaTokenClaims,
+	BeatKhanaTokenResponse,
+	BeatKhanaUser,
+} from "./beatkhana.types";
 
 const REQUIRED_SCOPE = "compcube";
 const CLOCK_TOLERANCE_SECONDS = 30;
@@ -38,6 +42,18 @@ class BeatKhanaService {
 		}
 		this.publicKey = createPublicKey(response.publicKey);
 		console.info("[Auth]: BeatKhana RS256 public key loaded");
+	}
+
+	/** Fetches a public BeatKhana profile by GUID, Discord ID or linked platform ID. */
+	async getUser(identifier: string): Promise<BeatKhanaUser> {
+		const profile = await fetchJson<BeatKhanaUser>(
+			"BeatKhana",
+			`${config.beatKhana.apiUrl}/users/${encodeURIComponent(identifier)}`,
+		);
+		if (!profile.guid || !profile.discordId || !profile.username) {
+			throw new Error("BeatKhana returned an invalid user profile");
+		}
+		return profile;
 	}
 
 	/** Builds the BeatKhana OAuth authorization URL for a persisted state value. */

@@ -18,6 +18,7 @@ export interface BeatKhanaOAuthUserInfo {
 export interface BeatKhanaUser {
     guid: string;
     username: string;
+    preferredName?: string | null;
     discordId: string;
     avatarUrl?: string | null;
     permissions?: string[];

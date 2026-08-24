@@ -30,6 +30,7 @@ import systemRouter from "./routes/system.route";
 import templateRouter from "./routes/template-ts.route";
 import { timerService } from "./services/timer.service";
 import { beatKhanaService } from "./services/beatkhana.service";
+import { startupService } from "./services/startup.service";
 import { swaggerSpec } from "./swagger";
 import { initialiseSocketManager } from "./websocket/wsManager";
 import { socketDocumentation } from "./websocket/socketDocumentation";
@@ -99,6 +100,7 @@ let restServer: http.Server | null = null;
 
 async function start(): Promise<void> {
 	await beatKhanaService.initialize();
+	await startupService.ensureRequiredAccounts();
 	restServer = app.listen(config.restPort, () =>
 		console.log(`[REST API]: ${config.publicApiUrl}`),
 	);
