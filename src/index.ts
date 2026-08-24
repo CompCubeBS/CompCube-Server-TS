@@ -45,8 +45,10 @@ app.set(
 );
 app.use(
 	cors({
+		// When every origin is allowed, cors reflects the request origin instead of sending `*`.
+		// This lets the website include its OAuth cookies while keeping the response valid in browsers.
 		origin: config.corsOrigin === "*" ? true : config.corsOrigin,
-		credentials: config.corsOrigin !== "*",
+		credentials: true,
 	}),
 );
 app.use(express.json({ limit: "5mb" }));
@@ -88,9 +90,9 @@ app.use((req, res) =>
 const socketHttpServer = http.createServer();
 const io = new Server(socketHttpServer, {
 	cors: {
-		origin: config.corsOrigin,
+		origin: config.corsOrigin === "*" ? true : config.corsOrigin,
 		methods: ["GET", "POST"],
-		credentials: config.corsOrigin !== "*",
+		credentials: true,
 	},
 	transports: ["websocket", "polling"],
 });
