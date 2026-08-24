@@ -32,7 +32,9 @@ export const config = {
         authorizeUrl: url("BK_AUTHORIZE_URL", "https://api.beatkhana.com/api/oauth/authorize"),
         callbackUrl: url("BK_CALLBACK_URL", "http://localhost:7198/oauth/callback"),
         linkingUrl: process.env.BK_LINKING_URL?.trim() || "https://beatkhana.com/users/@me/settings#linking",
-        scope: process.env.BK_OAUTH_SCOPE?.trim() || "compcube",
+        // CompCube access tokens must always be issued for CompCube. Making this configurable
+        // allowed the login flow to request a different scope which its own verifier rejected.
+        scope: "compcube",
         publicKeyUrl: url("BK_PUBLIC_KEY_URL", `${url("BK_API_URL", "https://api.beatkhana.com/api")}/requestPublicSignature`),
     },
     beatLeaderApiUrl: url("BEATLEADER_API_URL", "https://api.beatleader.xyz"),

@@ -42,6 +42,7 @@ export interface BeatKhanaTokenClaims {
     platformIds?: string[];
     tokenType?: "beatkhana:game";
     scopes: string[];
+    scope?: string;
     iat: number;
     exp: number;
     nbf?: number;

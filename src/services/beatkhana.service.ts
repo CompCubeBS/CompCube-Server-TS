@@ -28,6 +28,17 @@ function isStringArray(value: unknown): value is string[] {
 	return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }
 
+/** Reads scopes from BeatKhana's JWT claim without trusting the separate OAuth token response. */
+function accessTokenScopes(claims: Partial<BeatKhanaTokenClaims>): string[] {
+	if (isStringArray(claims.scopes)) {
+		return [...new Set(claims.scopes.map((scope) => scope.trim()).filter(Boolean))];
+	}
+	if (typeof claims.scope === "string") {
+		return [...new Set(claims.scope.split(/\s+/).map((scope) => scope.trim()).filter(Boolean))];
+	}
+	throw new Error("JWT scopes are missing");
+}
+
 class BeatKhanaService {
 	private publicKey: KeyObject | null = null;
 
@@ -111,8 +122,8 @@ class BeatKhanaService {
 			if (typeof claims.exp !== "number" || claims.exp <= now - CLOCK_TOLERANCE_SECONDS) throw new Error("Expired JWT");
 			if (typeof claims.iat !== "number" || claims.iat > now + CLOCK_TOLERANCE_SECONDS) throw new Error("Invalid JWT issue date");
 			if (typeof claims.nbf === "number" && claims.nbf > now + CLOCK_TOLERANCE_SECONDS) throw new Error("JWT is not active yet");
-			if (!isStringArray(claims.scopes)) throw new Error("JWT scopes are missing");
-			if (!claims.scopes.includes(REQUIRED_SCOPE)) {
+			const scopes = accessTokenScopes(claims);
+			if (!scopes.includes(REQUIRED_SCOPE)) {
 				throw new BeatKhanaTokenError("The BeatKhana token does not include the compcube scope", "INSUFFICIENT_SCOPE", 403);
 			}
 			const guid = typeof claims.guid === "string" ? claims.guid : null;
@@ -130,7 +141,7 @@ class BeatKhanaService {
 				platformId,
 				platformIds: isStringArray(claims.platformIds) ? [...new Set(claims.platformIds.filter((id) => /^\d+$/.test(id)))] : platformId ? [platformId] : [],
 				tokenType: claims.tokenType === "beatkhana:game" ? claims.tokenType : undefined,
-				scopes: claims.scopes,
+				scopes,
 				iat: claims.iat,
 				exp: claims.exp,
 				nbf: claims.nbf,
