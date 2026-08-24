@@ -1,0 +1,10 @@
+{
+    "watch": ["dist"],
+    "ext": "js",
+    "ignore": ["node_modules", "drizzle", "*.test.js", "*.spec.js", "dist/**/*.d.ts"],
+    "delay": 250,
+    "env": {
+        "NODE_ENV": "development"
+    },
+    "verbose": false
+}

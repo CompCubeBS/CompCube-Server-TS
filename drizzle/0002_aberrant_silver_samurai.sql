@@ -1,0 +1,2 @@
+ALTER TABLE "matches" ADD CONSTRAINT "matches_winner_only_when_completed" CHECK ("matches"."winner_user_guid" IS NULL OR "matches"."status" = 'completed');--> statement-breakpoint
+ALTER TABLE "matches" ADD CONSTRAINT "matches_draw_has_no_winner" CHECK ("matches"."outcome_kind" <> 'draw' OR "matches"."winner_user_guid" IS NULL);

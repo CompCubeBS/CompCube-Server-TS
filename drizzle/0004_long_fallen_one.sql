@@ -1,0 +1,2 @@
+ALTER TABLE "seasons" ADD COLUMN "starting_mmr" integer DEFAULT 1000 NOT NULL;--> statement-breakpoint
+ALTER TABLE "seasons" ADD CONSTRAINT "seasons_starting_mmr_nonnegative" CHECK ("seasons"."starting_mmr" >= 0);

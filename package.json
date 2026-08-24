@@ -1,0 +1,45 @@
+{
+	"name": "compcube-server-ts",
+	"version": "1.0.0",
+	"description": "The CompCube TypeScript Server",
+	"license": "ISC",
+	"author": "Bela, ShyyLuna",
+	"main": "./dist/src/index.js",
+	"scripts": {
+		"build": "tsc",
+		"build:watch": "tsc --watch",
+		"start": "node dist/src/index.js",
+		"dev": "nodemon --config nodemon-tsx.json --exec \"tsx src/index.ts\"",
+		"dev:fast": "tsx src/index.ts",
+		"dev:tsx": "tsx watch src/index.ts",
+		"db:generate": "drizzle-kit generate",
+		"db:push": "drizzle-kit push --force",
+		"db:constraints": "tsx db/applyConstraints.ts",
+		"db:setup": "npm run db:push && npm run db:constraints",
+		"test": "node --import tsx --test --test-force-exit tests/**/*.test.ts"
+	},
+	"dependencies": {
+		"cors": "^2.8.6",
+		"discord.js": "^14.27.0",
+		"dotenv": "^17.4.2",
+		"drizzle-orm": "^0.45.2",
+		"express": "^5.2.1",
+		"postgres": "^3.4.9",
+		"socket.io": "^4.8.3",
+		"swagger-jsdoc": "^6.3.0",
+		"swagger-ui-express": "^5.0.1",
+		"ws": "^8.21.3"
+	},
+	"devDependencies": {
+		"@types/express": "^5.0.6",
+		"@types/node": "^26.2.0",
+		"@types/swagger-jsdoc": "^6.0.4",
+		"@types/swagger-ui-express": "^4.1.8",
+		"@types/ws": "^8.18.1",
+		"drizzle-kit": "^0.31.10",
+		"nodemon": "^3.1.14",
+		"ts-node": "^10.9.2",
+		"tsx": "^4.20.6",
+		"typescript": "^7.0.2"
+	}
+}
