@@ -12,7 +12,7 @@ import authRouter from "./routes/auth.route";
 import accountsRouter from "./routes/accounts.route";
 import competitiveStatisticsRouter from "./routes/competitiveStatistics.route";
 import contributorsRouter from "./routes/contributors.route";
-import flairsRouter from "./routes/flairs.route";
+import mapCategoriesRouter from "./routes/mapCategories.route";
 import leaderboardsRouter from "./routes/leaderboards.route";
 import mapPoolingRouter from "./routes/mapPooling.route";
 import mapsRouter from "./routes/maps.route";
@@ -27,6 +27,7 @@ import seasonsRouter from "./routes/seasons.route";
 import timersRouter from "./routes/timers.route";
 import usersRouter from "./routes/users.route";
 import systemRouter from "./routes/system.route";
+import pluginReleasesRouter from "./routes/pluginReleases.route";
 import templateRouter from "./routes/template-ts.route";
 import { timerService } from "./services/timer.service";
 import { beatKhanaService } from "./services/beatkhana.service";
@@ -37,6 +38,7 @@ import { socketDocumentation } from "./websocket/socketDocumentation";
 import { socketDocumentationPage } from "./websocket/socketDocumentationPage";
 import { initialiseReplayRelay } from "./websocket/replayRelay";
 import { requestLogger } from "./middleware/requestLogger.middleware";
+import { ServiceError } from "./services/serviceError";
 
 const app = express();
 app.disable("x-powered-by");
@@ -59,11 +61,12 @@ app.use(express.urlencoded({ extended: false }));
 app.use("/oauth", authRouter);
 app.use("/account", accountRouter);
 app.use("/", systemRouter);
+app.use("/", pluginReleasesRouter);
 app.use("/", templateRouter);
 app.use(accountsRouter);
 app.use(competitiveStatisticsRouter);
 app.use(contributorsRouter);
-app.use(flairsRouter);
+app.use(mapCategoriesRouter);
 app.use(leaderboardsRouter);
 app.use(mapPoolingRouter);
 app.use(mapsRouter);
@@ -88,6 +91,18 @@ app.use((req, res) =>
 		error: { code: "NOT_FOUND", message: "Route does not exist" },
 	}),
 );
+app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+	if (error instanceof ServiceError) {
+		res.status(error.status).json({ error: { code: error.code, message: error.message } });
+		return;
+	}
+	if (typeof error === "object" && error !== null && "status" in error && error.status === 413) {
+		res.status(413).json({ error: { code: "PLUGIN_FILE_TOO_LARGE", message: "The plugin DLL exceeds the configured upload limit" } });
+		return;
+	}
+	console.error("[REST API]: Unhandled request error", error);
+	res.status(500).json({ error: { code: "INTERNAL_ERROR", message: "The request could not be completed" } });
+});
 
 const socketHttpServer = http.createServer();
 const io = new Server(socketHttpServer, {

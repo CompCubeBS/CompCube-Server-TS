@@ -42,6 +42,9 @@ export const config = {
     beatSaverApiUrl: url("BEATSAVER_API_URL", "https://api.beatsaver.com"),
 	beatSaverFallbackApiUrl: url("BEATSAVER_FALLBACK_API_URL", "https://beatsaver.com/api"),
 	pluginVersions: csv("PLUGIN_VERSIONS"),
+	pluginReleaseDirectory: process.env.PLUGIN_RELEASE_DIRECTORY?.trim() || "./plugin-releases",
+	pluginUploadSecret: process.env.PLUGIN_UPLOAD_SECRET?.trim() || "",
+	pluginUploadMaxBytes: number("PLUGIN_UPLOAD_MAX_BYTES", 25 * 1024 * 1024),
     discordToken: process.env.DISCORD_TOKEN?.trim() ?? "",
     discordClientId: process.env.DISCORD_CLIENT_ID?.trim() ?? "",
     discordGuildId: process.env.DISCORD_GUILD_ID?.trim() || undefined,
@@ -49,6 +52,7 @@ export const config = {
 	timerLeaseMs: number("TIMER_LEASE_MS", 30_000),
 	discardSeconds: number("DISCARD_SECONDS", 60),
 	pickSeconds: number("PICK_SECONDS", 45),
+	roundResultsSeconds: number("ROUND_RESULTS_SECONDS", 6),
     instanceId: process.env.INSTANCE_ID?.trim() || `${process.pid}-${randomUUID()}`,
 } as const;
 

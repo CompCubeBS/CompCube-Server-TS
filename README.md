@@ -10,13 +10,21 @@ This is the TypeScript/PostgreSQL rewrite of the CompCube server. It is derived 
 
 The REST API defaults to `http://localhost:7198`, Swagger UI is at `/docs`, the OpenAPI JSON is at `/openapi.json`, and Socket.IO defaults to port `8008`.
 
-`docker compose up --build` starts PostgreSQL, applies the Drizzle schema and PostgreSQL-only constraints, then starts both server listeners.
+`docker compose up -d --build` starts PostgreSQL, applies the Drizzle schema and PostgreSQL-only constraints, then starts both server listeners. For hot reload use `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build`.
+
+## Plugin release publishing
+
+The backend stores published DLLs and `manifest.json` in `PLUGIN_RELEASE_DIRECTORY`. Public clients use `GET /plugin-releases`, and each listed `downloadUrl` serves the exact DLL with plugin-version and SHA-256 response headers.
+
+Set `PLUGIN_UPLOAD_SECRET` to a long random value generated with `openssl rand -hex 32`. The plugin workflow sends a raw DLL to `POST /internal/plugin-releases/{gameVersion}` with that bearer token and an `X-CompCube-Plugin-Version` header. Never expose this token to the website or commit it to an env file.
 
 ## Timer design
 
 Match timers are database rows with an absolute `due_at`. A backend instance claims an overdue timer using a short lease, runs its idempotent handler and marks it completed. If the backend dies, another instance can claim the timer when the lease expires. Pausing a match saves the remaining milliseconds; resuming creates a new absolute deadline.
 
 This means the process is never the source of truth for a timer. The database is.
+
+Non-final rounds enter `round_results` for `ROUND_RESULTS_SECONDS` (six seconds by default). Only after that durable timer completes does the backend create the next `PICK_SECONDS` deadline. The plugin reports its configured results duration during authentication, and the backend rejects a mismatch so display time cannot consume pick time.
 
 ## Authentication and account linking
 

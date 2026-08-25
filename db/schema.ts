@@ -189,10 +189,10 @@ export const seasonPools = pgTable("season_pools", {
 ]);
 
 /**
- * Flairs Table
- * Essentially the map categories.
+ * Map Categories Table
+ * Optional labels such as Speed, Tech, Accuracy, or Challenge.
  */
-export const flairs = pgTable("flairs", {
+export const mapCategories = pgTable("flairs", {
     guid: uuid("guid").defaultRandom().primaryKey(),
 
     name: varchar("name", { length: 255 }).notNull().unique(),
@@ -206,14 +206,14 @@ export const flairs = pgTable("flairs", {
 
 /**
  * Maps Table
- * Maps for the pools. Modifiers are stored here because the same chart can be played with a fixed ruleset.
+ * Maps for the pools. Modifiers are stored here because the same map can be played with a fixed ruleset.
  */
 export const maps = pgTable("maps", {
     guid: uuid("guid").defaultRandom().primaryKey(),
 
     poolGuid: uuid("pool_guid").notNull().references(() => seasonPools.guid, { onDelete: "cascade", onUpdate: "cascade" }),
-    // A map flair is the category like Speed, Extreme, so on. Optional ofc
-    flairGuid: uuid("flair_guid").references(() => flairs.guid, { onDelete: "set null", onUpdate: "cascade" }),
+    // A category such as Speed or Tech is optional.
+    categoryGuid: uuid("flair_guid").references(() => mapCategories.guid, { onDelete: "set null", onUpdate: "cascade" }),
 
     name: varchar("name", { length: 255 }).notNull(),
     imageUrl: text("image_url"),
@@ -418,6 +418,33 @@ export const matchStatusHistory = pgTable("match_status_history", {
 ]);
 
 /**
+ * Match Audit Events Table
+ * Stores one human-readable event per action rather than one timeline entry per affected map.
+ * The detailed map action rows remain the authoritative per-map history.
+ */
+export const matchAuditEvents = pgTable("match_audit_events", {
+    guid: uuid("guid").defaultRandom().primaryKey(),
+
+    matchGuid: uuid("match_guid").notNull().references(() => matches.guid, { onDelete: "cascade", onUpdate: "cascade" }),
+    userGuid: uuid("user_guid").references(() => users.guid, { onDelete: "set null", onUpdate: "cascade" }),
+    timerGuid: uuid("timer_guid").references(() => matchTimers.guid, { onDelete: "set null", onUpdate: "cascade" }),
+
+    eventType: varchar("event_type", { length: 64 }).$type<"initial_hand_dealt" | "discards_submitted" | "replacement_maps_dealt" | "map_picked" | "score_submitted" | "score_defaulted">().notNull(),
+    source: varchar("source", { length: 16 }).$type<"player" | "server">().notNull(),
+    timerExpired: boolean("timer_expired").notNull().default(false),
+    elapsedMs: integer("elapsed_ms"),
+    remainingMs: integer("remaining_ms"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+}, (table) => [
+    index("match_audit_events_match_time_idx").on(table.matchGuid, table.createdAt),
+    check("match_audit_events_type", sql`${table.eventType} IN ('initial_hand_dealt', 'discards_submitted', 'replacement_maps_dealt', 'map_picked', 'score_submitted', 'score_defaulted')`),
+    check("match_audit_events_source", sql`${table.source} IN ('player', 'server')`),
+    check("match_audit_events_timing_nonnegative", sql`(${table.elapsedMs} IS NULL OR ${table.elapsedMs} >= 0) AND (${table.remainingMs} IS NULL OR ${table.remainingMs} >= 0)`),
+]);
+
+/**
  * Match Timers Table
  * Timers use an absolute due time, so if the backend dies it can pick up every overdue timer after it comes back.
  * The lease prevents two backend instances from firing the same timer at once.
@@ -607,6 +634,7 @@ export const usersRelations = relations(users, ({ many }) => ({
     hands: many(matchHands),
     mapActions: many(matchMapActions),
     statusChanges: many(matchStatusHistory),
+    auditEvents: many(matchAuditEvents),
     scores: many(matchScores),
     wonMatches: many(matches, { relationName: "matchWinner" }),
     pickedRounds: many(matchRounds, { relationName: "roundPicker" }),
@@ -664,7 +692,7 @@ export const seasonPoolsRelations = relations(seasonPools, ({ one, many }) => ({
     matches: many(matches),
 }));
 
-export const flairsRelations = relations(flairs, ({ many }) => ({
+export const mapCategoriesRelations = relations(mapCategories, ({ many }) => ({
     maps: many(maps),
 }));
 
@@ -673,9 +701,9 @@ export const mapsRelations = relations(maps, ({ one, many }) => ({
         fields: [maps.poolGuid],
         references: [seasonPools.guid],
     }),
-    flair: one(flairs, {
-        fields: [maps.flairGuid],
-        references: [flairs.guid],
+    category: one(mapCategories, {
+        fields: [maps.categoryGuid],
+        references: [mapCategories.guid],
     }),
     handMaps: many(matchHandMaps),
     actions: many(matchMapActions),
@@ -728,6 +756,7 @@ export const matchesRelations = relations(matches, ({ one, many }) => ({
     mockClients: many(mockClients),
     participants: many(matchParticipants),
     statusHistory: many(matchStatusHistory),
+    auditEvents: many(matchAuditEvents),
     timers: many(matchTimers),
     hands: many(matchHands),
     mapActions: many(matchMapActions),
@@ -770,6 +799,21 @@ export const matchStatusHistoryRelations = relations(matchStatusHistory, ({ one 
     actor: one(users, {
         fields: [matchStatusHistory.actorUserGuid],
         references: [users.guid],
+    }),
+}));
+
+export const matchAuditEventsRelations = relations(matchAuditEvents, ({ one }) => ({
+    match: one(matches, {
+        fields: [matchAuditEvents.matchGuid],
+        references: [matches.guid],
+    }),
+    user: one(users, {
+        fields: [matchAuditEvents.userGuid],
+        references: [users.guid],
+    }),
+    timer: one(matchTimers, {
+        fields: [matchAuditEvents.timerGuid],
+        references: [matchTimers.guid],
     }),
 }));
 
@@ -855,3 +899,4 @@ export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Match = typeof matches.$inferSelect;
 export type MatchTimer = typeof matchTimers.$inferSelect;
+export type MatchAuditEvent = typeof matchAuditEvents.$inferSelect;

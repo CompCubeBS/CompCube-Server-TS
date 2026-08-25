@@ -6,6 +6,7 @@ export const roundResultsOutput = {
 	redHealth: "number",
 	blueHealth: "number",
 	scores: "score[]",
+	resultsDueAt: "date-time|null",
 } as const;
 export interface RoundResultScore {
 	guid: string;
@@ -32,4 +33,5 @@ export interface RoundResultsOutput {
 	redHealth: number;
 	blueHealth: number;
 	scores: RoundResultScore[];
+	resultsDueAt: string | null;
 }

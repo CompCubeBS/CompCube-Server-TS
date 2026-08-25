@@ -167,7 +167,7 @@ router.get("/maps/download/:hash", async (req, res) => {
 router.get("/pools/:poolGuid/maps", async (req, res) => {
 	res.json(await db.query.maps.findMany({
 		where: eq(maps.poolGuid, req.params.poolGuid),
-		with: { flair: true },
+		with: { category: true },
 	}));
 });
 
@@ -225,12 +225,12 @@ router.post("/pools/:poolGuid/maps", requireAuth, async (req, res) => {
 		return;
 	}
 
-	const { key, characteristic, difficulty, modifiers, flairGuid } = req.body as {
+	const { key, characteristic, difficulty, modifiers, categoryGuid } = req.body as {
 		key?: string;
 		characteristic?: string;
 		difficulty?: string;
 		modifiers?: string[];
-		flairGuid?: string | null;
+		categoryGuid?: string | null;
 	};
 	if (!key || !characteristic || !difficulty || !Array.isArray(modifiers)) {
 		res.status(400).json({ error: { code: "INVALID_MAP", message: "key, characteristic, difficulty and modifiers are required" } });
@@ -261,7 +261,7 @@ router.post("/pools/:poolGuid/maps", requireAuth, async (req, res) => {
 			.insert(maps)
 			.values({
 				poolGuid: pool.guid,
-				flairGuid: flairGuid ?? null,
+				categoryGuid: categoryGuid ?? null,
 				name: beatSaverMap.songName,
 				imageUrl: beatSaverMap.imageUrl,
 				hash: beatSaverMap.hash.toUpperCase(),
@@ -275,7 +275,7 @@ router.post("/pools/:poolGuid/maps", requireAuth, async (req, res) => {
 			.returning();
 		res.status(201).json(created);
 	} catch {
-		res.status(409).json({ error: { code: "MAP_ALREADY_EXISTS", message: "This chart already exists in the pool" } });
+		res.status(409).json({ error: { code: "MAP_ALREADY_EXISTS", message: "This map already exists in the pool" } });
 	}
 });
 
@@ -308,7 +308,7 @@ router.post("/pools/:poolGuid/maps", requireAuth, async (req, res) => {
  */
 router.get("/maps", async (_req, res) => {
 	res.json(await db.query.maps.findMany({
-		with: { pool: true, flair: true },
+		with: { pool: true, category: true },
 	}));
 });
 
@@ -382,7 +382,7 @@ router.post("/maps", (req, res) => {
 router.get("/maps/:mapGuid", async (req, res) => {
 	const map = await db.query.maps.findFirst({
 		where: eq(maps.guid, String(req.params.mapGuid)),
-		with: { pool: true, flair: true },
+		with: { pool: true, category: true },
 	});
 	if (!map) {
 		res.status(404).json({ error: { code: "MAP_NOT_FOUND", message: "Map does not exist" } });
@@ -456,7 +456,7 @@ router.patch("/maps/:mapGuid", requireAuth, async (req, res) => {
 	const [updated] = await db
 		.update(maps)
 		.set({
-			...(req.body?.flairGuid !== undefined ? { flairGuid: req.body.flairGuid } : {}),
+			...(req.body?.categoryGuid !== undefined ? { categoryGuid: req.body.categoryGuid } : {}),
 			...(modifiers !== undefined ? { modifiers } : {}),
 			updatedAt: new Date(),
 		})

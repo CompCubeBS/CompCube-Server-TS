@@ -5,6 +5,7 @@ import {
 	maps,
 	matchHandMaps,
 	matchHands,
+	matchAuditEvents,
 	matchMapActions,
 	matchParticipants,
 	matches,
@@ -302,6 +303,24 @@ class QueueService {
 					mapGuid: map.guid,
 					action: "dealt" as const,
 				})),
+			]);
+			await tx.insert(matchAuditEvents).values([
+				{
+					matchGuid: match.guid,
+					userGuid: red.user.guid,
+					eventType: "initial_hand_dealt",
+					source: "server",
+					metadata: { mapGuids: poolMaps.slice(0, 5).map((map) => map.guid) },
+					createdAt: startedAt,
+				},
+				{
+					matchGuid: match.guid,
+					userGuid: blue.user.guid,
+					eventType: "initial_hand_dealt",
+					source: "server",
+					metadata: { mapGuids: poolMaps.slice(5).map((map) => map.guid) },
+					createdAt: startedAt,
+				},
 			]);
 			await tx.insert(matchStatusHistory).values({
 				matchGuid: match.guid,

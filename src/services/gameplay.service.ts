@@ -5,6 +5,7 @@ import {
 	maps,
 	matchHandMaps,
 	matchHands,
+	matchAuditEvents,
 	matchMapActions,
 	matchParticipants,
 	matchRounds,
@@ -34,6 +35,37 @@ export interface SubmittedScore {
 	fullCombo: boolean;
 }
 
+export interface GameplayActionContext {
+	source?: "player" | "server";
+	timerExpired?: boolean;
+}
+
+function timerTiming(timer: { createdAt: Date; dueAt: Date } | undefined, occurredAt: Date) {
+	if (!timer) return { elapsedMs: null, remainingMs: null };
+	return {
+		elapsedMs: Math.max(0, occurredAt.getTime() - timer.createdAt.getTime()),
+		remainingMs: Math.max(0, timer.dueAt.getTime() - occurredAt.getTime()),
+	};
+}
+
+/** Creates an absolute phase deadline without allowing a negative or invalid duration. */
+export function phaseDeadline(startedAt: Date, durationSeconds: number): Date {
+	if (!Number.isFinite(durationSeconds) || durationSeconds < 0) {
+		throw new Error("Phase duration must be a non-negative number");
+	}
+	return new Date(startedAt.getTime() + durationSeconds * 1000);
+}
+
+/** Validates a single discard submission against the active cards from the player's original deal. */
+export function isValidDiscardSelection(
+	mapGuids: readonly string[],
+	originalActiveMapGuids: ReadonlySet<string>,
+): boolean {
+	return mapGuids.length <= 2
+		&& new Set(mapGuids).size === mapGuids.length
+		&& mapGuids.every((mapGuid) => originalActiveMapGuids.has(mapGuid));
+}
+
 /** Doubles the rolling disconnect penalty after every prior disconnect in the fourteen-day window. */
 export function disconnectPenaltyMinutes(previousDisconnects: number): number {
 	if (!Number.isInteger(previousDisconnects) || previousDisconnects < 0) {
@@ -51,6 +83,7 @@ export interface ResolvedRound {
 	redHealth: number;
 	blueHealth: number;
 	scores: Array<typeof matchScores.$inferSelect>;
+	roundResultsDueAt: Date | null;
 	matchResult: null | {
 		winnerUserGuid: string | null;
 		outcome: "completed" | "draw";
@@ -242,9 +275,62 @@ class GameplayService {
 		};
 	}
 
+	/** Ends the persisted results display and starts a fresh, full-length pick deadline. */
+	async finishRoundResults(matchGuid: string, roundGuid: string): Promise<{ pickDueAt: Date } | null> {
+		return db.transaction(async (tx) => {
+			await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${matchGuid}:round-results`}))`);
+			const match = await tx.query.matches.findFirst({
+				where: eq(matches.guid, matchGuid),
+			});
+			const round = await tx.query.matchRounds.findFirst({
+				where: and(eq(matchRounds.guid, roundGuid), eq(matchRounds.matchGuid, matchGuid)),
+				with: { scores: true },
+			});
+			if (!match || !round) return null;
+			if (!round.endedAt || round.scores.length !== 2 || match.currentRound !== round.roundNumber) {
+				throw new ServiceError("INVALID_ROUND_RESULTS", "The completed round is not ready to advance", 409);
+			}
+
+			const idempotencyKey = `pick:${matchGuid}:${round.roundNumber + 1}`;
+			if (match.status === "awaiting_pick") {
+				const existing = await tx.query.matchTimers.findFirst({
+					where: eq(matchTimers.idempotencyKey, idempotencyKey),
+				});
+				return existing ? { pickDueAt: existing.dueAt } : null;
+			}
+			if (match.status !== "round_results") return null;
+
+			const startedAt = new Date();
+			const pickDueAt = phaseDeadline(startedAt, config.pickSeconds);
+			const updated = await tx.update(matches).set({
+				status: "awaiting_pick",
+				version: match.version + 1,
+				updatedAt: startedAt,
+			}).where(and(eq(matches.guid, matchGuid), eq(matches.version, match.version))).returning({ guid: matches.guid });
+			if (!updated.length) throw new ServiceError("STALE_MATCH", "Match state changed while results were ending", 409);
+			await tx.insert(matchStatusHistory).values({
+				matchGuid,
+				fromStatus: "round_results",
+				toStatus: "awaiting_pick",
+				reason: "round_results_finished",
+				metadata: { roundGuid, dueAt: pickDueAt.toISOString() },
+			});
+			await tx.insert(matchTimers).values({
+				matchGuid,
+				kind: "pick",
+				dueAt: pickDueAt,
+				idempotencyKey,
+				payload: { matchGuid, roundNumber: round.roundNumber + 1 },
+			});
+			return { pickDueAt };
+		});
+	}
+
 	/** Persists a player's initial discards and refills their hand from the match pool. */
-	async discardMaps(matchGuid: string, userGuid: string, mapGuids: string[]) {
+	async discardMaps(matchGuid: string, userGuid: string, mapGuids: string[], context: GameplayActionContext = {}) {
 		const result = await db.transaction(async (tx) => {
+			// A rapid second packet must wait until the first submission has marked the hand complete.
+			await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${matchGuid}:${userGuid}:discard`}))`);
 			const match = await tx.query.matches.findFirst({
 				where: eq(matches.guid, matchGuid),
 			});
@@ -269,13 +355,40 @@ class GameplayService {
 			if (!hand || hand.discardedAt) {
 				throw new ServiceError("DISCARDS_ALREADY_SUBMITTED", "This hand has already submitted its discards", 409);
 			}
+			const actionAt = new Date();
+			const discardTimer = await tx.query.matchTimers.findFirst({
+				where: and(
+					eq(matchTimers.matchGuid, matchGuid),
+					eq(matchTimers.kind, "discard"),
+					inArray(matchTimers.status, ["scheduled", "processing", "paused"]),
+				),
+				orderBy: matchTimers.dueAt,
+			});
+			const timing = timerTiming(discardTimer, actionAt);
 
 			const activeCards = await tx.query.matchHandMaps.findMany({
 				where: and(eq(matchHandMaps.handGuid, hand.guid), eq(matchHandMaps.active, true)),
 			});
+			const dealtActions = await tx.query.matchMapActions.findMany({
+				columns: { mapGuid: true },
+				where: and(
+					eq(matchMapActions.matchGuid, matchGuid),
+					eq(matchMapActions.userGuid, userGuid),
+					eq(matchMapActions.action, "dealt"),
+				),
+			});
 			const activeMapGuids = new Set(activeCards.map((card) => card.mapGuid));
-			if (mapGuids.some((mapGuid) => !activeMapGuids.has(mapGuid))) {
-				throw new ServiceError("INVALID_DISCARDS", "Every discarded map must be active in the player's hand", 400);
+			const originalActiveMapGuids = new Set(
+				dealtActions
+					.map((action) => action.mapGuid)
+					.filter((mapGuid) => activeMapGuids.has(mapGuid)),
+			);
+			if (!isValidDiscardSelection(mapGuids, originalActiveMapGuids)) {
+				throw new ServiceError(
+					"INVALID_DISCARDS",
+					"Submit at most two distinct, active maps from the original deal",
+					400,
+				);
 			}
 
 			if (mapGuids.length) {
@@ -324,8 +437,33 @@ class GameplayService {
 					action: "replacement" as const,
 				})));
 			}
+			await tx.insert(matchAuditEvents).values({
+				matchGuid,
+				userGuid,
+				timerGuid: discardTimer?.guid,
+				eventType: "discards_submitted",
+				source: context.source ?? "player",
+				timerExpired: context.timerExpired ?? false,
+				...timing,
+				metadata: { mapGuids },
+				createdAt: actionAt,
+			});
+			if (replacements.length) {
+				const replacementLoggedAt = new Date(actionAt.getTime() + 1);
+				await tx.insert(matchAuditEvents).values({
+					matchGuid,
+					userGuid,
+					timerGuid: discardTimer?.guid,
+					eventType: "replacement_maps_dealt",
+					source: "server",
+					timerExpired: context.timerExpired ?? false,
+					...timing,
+					metadata: { mapGuids: replacements.map((map) => map.guid) },
+					createdAt: replacementLoggedAt,
+				});
+			}
 
-			await tx.update(matchHands).set({ discardedAt: new Date() }).where(eq(matchHands.guid, hand.guid));
+			await tx.update(matchHands).set({ discardedAt: actionAt }).where(eq(matchHands.guid, hand.guid));
 			const hands = await tx.query.matchHands.findMany({
 				where: eq(matchHands.matchGuid, matchGuid),
 			});
@@ -372,7 +510,7 @@ class GameplayService {
 	}
 
 	/** Selects one active hand map, starts the round and schedules its durable score deadline. */
-	async selectMap(matchGuid: string, userGuid: string, mapGuid: string) {
+	async selectMap(matchGuid: string, userGuid: string, mapGuid: string, context: GameplayActionContext = {}) {
 		return db.transaction(async (tx) => {
 			const match = await tx.query.matches.findFirst({
 				where: eq(matches.guid, matchGuid),
@@ -414,6 +552,15 @@ class GameplayService {
 			}
 
 			const startedAt = new Date();
+			const pickTimer = await tx.query.matchTimers.findFirst({
+				where: and(
+					eq(matchTimers.matchGuid, matchGuid),
+					eq(matchTimers.kind, "pick"),
+					inArray(matchTimers.status, ["scheduled", "processing", "paused"]),
+				),
+				orderBy: matchTimers.dueAt,
+			});
+			const timing = timerTiming(pickTimer, startedAt);
 			const dueAt = scoreSubmissionDeadline(startedAt, card.map.durationSeconds, card.map.modifiers);
 			const [round] = await tx.insert(matchRounds).values({
 				matchGuid,
@@ -434,6 +581,17 @@ class GameplayService {
 				mapGuid,
 				roundNumber,
 				action: "picked",
+			});
+			await tx.insert(matchAuditEvents).values({
+				matchGuid,
+				userGuid,
+				timerGuid: pickTimer?.guid,
+				eventType: "map_picked",
+				source: context.source ?? "player",
+				timerExpired: context.timerExpired ?? false,
+				...timing,
+				metadata: { mapGuid, roundNumber },
+				createdAt: startedAt,
 			});
 			await tx.update(matches).set({
 				status: "awaiting_scores",
@@ -469,7 +627,7 @@ class GameplayService {
 	}
 
 	/** Accepts one on-time plugin score and resolves the round after both scores exist. */
-	async submitScore(matchGuid: string, roundGuid: string, userGuid: string, score: SubmittedScore) {
+	async submitScore(matchGuid: string, roundGuid: string, userGuid: string, score: SubmittedScore, context: GameplayActionContext = {}) {
 		if (
 			!Number.isInteger(score.modifiedScore) ||
 			score.modifiedScore < 0 ||
@@ -513,6 +671,7 @@ class GameplayService {
 			if (!participant || participant.role === "spectator") {
 				throw new ServiceError("NOT_A_PARTICIPANT", "Only a competitor can submit this score", 403);
 			}
+			const submittedAt = new Date();
 			try {
 				await tx.insert(matchScores).values({
 					roundGuid,
@@ -529,11 +688,29 @@ class GameplayService {
 					modifiers: round.map.modifiers,
 					healthBefore: participant.health,
 					healthAfter: participant.health,
-					submittedAt: new Date(),
+					submittedAt,
 				});
 			} catch {
 				throw new ServiceError("SCORE_ALREADY_SUBMITTED", "A score already exists for this player and round", 409);
 			}
+			const scoreTimer = await tx.query.matchTimers.findFirst({
+				where: and(
+					eq(matchTimers.matchGuid, matchGuid),
+					eq(matchTimers.kind, "score_submission"),
+					inArray(matchTimers.status, ["scheduled", "processing", "paused"]),
+				),
+				orderBy: matchTimers.dueAt,
+			});
+			await tx.insert(matchAuditEvents).values({
+				matchGuid,
+				userGuid,
+				timerGuid: scoreTimer?.guid,
+				eventType: "score_submitted",
+				source: context.source ?? "player",
+				...timerTiming(scoreTimer ?? { createdAt: round.startedAt, dueAt: round.scoreSubmissionDueAt }, submittedAt),
+				metadata: { roundGuid, roundNumber: round.roundNumber },
+				createdAt: submittedAt,
+			});
 			const scores = await tx.query.matchScores.findMany({
 				where: eq(matchScores.roundGuid, roundGuid),
 			});
@@ -570,6 +747,15 @@ class GameplayService {
 			const existingUsers = new Set(existing.map((score) => score.userGuid));
 			const missing = participants.filter((participant) => !existingUsers.has(participant.userGuid));
 			if (missing.length) {
+				const expiredAt = new Date();
+				const scoreTimer = await tx.query.matchTimers.findFirst({
+					where: and(
+						eq(matchTimers.matchGuid, round.match.guid),
+						eq(matchTimers.kind, "score_submission"),
+						inArray(matchTimers.status, ["scheduled", "processing", "paused"]),
+					),
+					orderBy: matchTimers.dueAt,
+				});
 				await tx.insert(matchScores).values(missing.map((participant) => ({
 					roundGuid,
 					userGuid: participant.userGuid,
@@ -587,6 +773,17 @@ class GameplayService {
 					healthBefore: participant.health,
 					healthAfter: participant.health,
 					submittedAt: null,
+				})));
+				await tx.insert(matchAuditEvents).values(missing.map((participant) => ({
+					matchGuid: round.match.guid,
+					userGuid: participant.userGuid,
+					timerGuid: scoreTimer?.guid,
+					eventType: "score_defaulted" as const,
+					source: "server" as const,
+					timerExpired: true,
+					...timerTiming(scoreTimer ?? { createdAt: round.startedAt, dueAt: round.scoreSubmissionDueAt ?? expiredAt }, expiredAt),
+					metadata: { roundGuid, roundNumber: round.roundNumber },
+					createdAt: expiredAt,
 				})));
 			}
 			return participants.length === 2;
@@ -662,26 +859,27 @@ class GameplayService {
 			}).where(eq(matchRounds.guid, roundGuid));
 
 			let matchResult: ResolvedRound["matchResult"] = null;
+			let roundResultsDueAt: Date | null = null;
 			if (!outcome) {
-				const pickDueAt = new Date(endedAt.getTime() + config.pickSeconds * 1000);
+				roundResultsDueAt = phaseDeadline(endedAt, config.roundResultsSeconds);
 				await tx.update(matches).set({
-					status: "awaiting_pick",
+					status: "round_results",
 					version: roundRow.match.version + 1,
 					updatedAt: endedAt,
 				}).where(eq(matches.guid, roundRow.match.guid));
 				await tx.insert(matchStatusHistory).values({
 					matchGuid: roundRow.match.guid,
 					fromStatus: "awaiting_scores",
-					toStatus: "awaiting_pick",
+					toStatus: "round_results",
 					reason: "round_resolved",
-					metadata: { roundGuid },
+					metadata: { roundGuid, dueAt: roundResultsDueAt.toISOString() },
 				});
 				await tx.insert(matchTimers).values({
 					matchGuid: roundRow.match.guid,
-					kind: "pick",
-					dueAt: pickDueAt,
-					idempotencyKey: `pick:${roundRow.match.guid}:${roundRow.roundNumber + 1}`,
-					payload: { matchGuid: roundRow.match.guid, roundNumber: roundRow.roundNumber + 1 },
+					kind: "round_results",
+					dueAt: roundResultsDueAt,
+					idempotencyKey: `round-results:${roundGuid}`,
+					payload: { matchGuid: roundRow.match.guid, roundGuid, roundNumber: roundRow.roundNumber },
 				});
 			} else {
 				const winner = outcome === "red" ? red : outcome === "blue" ? blue : null;
@@ -771,6 +969,17 @@ class GameplayService {
 				};
 			}
 
+			await tx.update(matchTimers).set({
+				status: "cancelled",
+				leaseOwner: null,
+				leaseExpiresAt: null,
+				updatedAt: endedAt,
+			}).where(and(
+				eq(matchTimers.matchGuid, roundRow.match.guid),
+				eq(matchTimers.kind, "score_submission"),
+				inArray(matchTimers.status, ["scheduled", "processing", "paused"]),
+			));
+
 			const updatedScores = await tx.query.matchScores.findMany({
 				where: eq(matchScores.roundGuid, roundGuid),
 			});
@@ -783,6 +992,7 @@ class GameplayService {
 				redHealth: health.redHealth,
 				blueHealth: health.blueHealth,
 				scores: updatedScores,
+				roundResultsDueAt,
 				matchResult,
 			};
 		});

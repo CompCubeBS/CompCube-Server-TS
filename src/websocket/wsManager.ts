@@ -7,8 +7,9 @@ import { accountService } from "../services/account.service";
 import { beatKhanaService } from "../services/beatkhana.service";
 import { queueService } from "../services/queue.service";
 import { gameplayService } from "../services/gameplay.service";
+import { ServiceError } from "../services/serviceError";
 import { timerService } from "../services/timer.service";
-import { emitResolvedRound } from "./matchEvents";
+import { emitPickPhaseStarted, emitResolvedRound } from "./matchEvents";
 import type { AuthenticatedSocket } from "./packets/common";
 import { registerAdminDecisionPacket } from "./packets/adminDecision/adminDecision.packetHandler";
 import { forfeitDisconnectedPlayer, registerClientDisconnectPacket } from "./packets/clientDisconnect/clientDisconnect.packetHandler";
@@ -102,6 +103,14 @@ export function initialiseSocketManager(io: Server): void {
 		const result = await gameplayService.expireScoreDeadline(roundGuid);
 		if (result) await emitResolvedRound(io, result);
 	});
+	timerService.register("round_results", async (timer) => {
+		const roundGuid = typeof timer.payload.roundGuid === "string"
+			? timer.payload.roundGuid
+			: null;
+		if (!roundGuid) throw new Error("Round-results timer is missing roundGuid");
+		const advanced = await gameplayService.finishRoundResults(timer.matchGuid, roundGuid);
+		if (advanced) await emitPickPhaseStarted(io, timer.matchGuid);
+	});
 	timerService.register("discard", async (timer) => {
 		const match = await db.query.matches.findFirst({ where: eq(matches.guid, timer.matchGuid) });
 		if (!match || match.status !== "awaiting_discards") return;
@@ -110,7 +119,17 @@ export function initialiseSocketManager(io: Server): void {
 		});
 		let readyResult: Awaited<ReturnType<typeof gameplayService.discardMaps>> | null = null;
 		for (const hand of hands.filter((candidate) => !candidate.discardedAt)) {
-			readyResult = await gameplayService.discardMaps(timer.matchGuid, hand.userGuid, []);
+			try {
+				readyResult = await gameplayService.discardMaps(timer.matchGuid, hand.userGuid, [], {
+					source: "server",
+					timerExpired: true,
+				});
+			} catch (error) {
+				// The player may have submitted after the timer's initial read but before its locked action.
+				// In that race, their real submission wins and the server acts only for the other pending hand.
+				if (error instanceof ServiceError && error.code === "DISCARDS_ALREADY_SUBMITTED") continue;
+				throw error;
+			}
 		}
 		if (readyResult?.ready) {
 			const pick = await gameplayService.getPickState(timer.matchGuid);
@@ -146,7 +165,10 @@ export function initialiseSocketManager(io: Server): void {
 		const pick = await gameplayService.getPickState(timer.matchGuid);
 		const firstMap = pick.cards[0];
 		if (!firstMap) throw new Error("Pick timer expired without an available map");
-		const result = await gameplayService.selectMap(timer.matchGuid, pick.picker.userGuid, firstMap.guid);
+		const result = await gameplayService.selectMap(timer.matchGuid, pick.picker.userGuid, firstMap.guid, {
+			source: "server",
+			timerExpired: true,
+		});
 		const map = {
 			guid: result.map.guid,
 			hash: result.map.hash,
@@ -181,6 +203,8 @@ export function initialiseSocketManager(io: Server): void {
 				? socket.handshake.auth.pluginVersion.trim()
 				: "";
 			socket.data.pluginVersion = pluginVersion || undefined;
+			const roundResultsSeconds = Number(socket.handshake.auth?.roundResultsSeconds);
+			if (Number.isFinite(roundResultsSeconds)) socket.data.roundResultsSeconds = roundResultsSeconds;
 			const accessToken =
 				typeof socket.handshake.auth?.accessToken === "string"
 					? socket.handshake.auth.accessToken
@@ -192,6 +216,9 @@ export function initialiseSocketManager(io: Server): void {
 						throw new Error("PLUGIN_GAME_TOKEN_REQUIRED");
 					}
 					if (!pluginVersion) throw new Error("PLUGIN_VERSION_REQUIRED");
+					if (!Number.isFinite(roundResultsSeconds) || roundResultsSeconds < 0 || Math.abs(roundResultsSeconds - config.roundResultsSeconds) > 0.001) {
+						throw new Error("ROUND_RESULTS_DURATION_MISMATCH");
+					}
 					if (config.pluginVersions.length && !config.pluginVersions.includes(pluginVersion)) {
 						throw new Error("PLUGIN_VERSION_UNSUPPORTED");
 					}
@@ -216,6 +243,8 @@ export function initialiseSocketManager(io: Server): void {
 				socketId: socket.id,
 				clientType: socket.data.clientType ?? null,
 				pluginVersion: socket.data.pluginVersion ?? null,
+				roundResultsSeconds: socket.data.roundResultsSeconds ?? null,
+				expectedRoundResultsSeconds: config.roundResultsSeconds,
 				error: error instanceof Error ? error.message : "Unknown authentication error",
 			}));
 			next(new Error("AUTH_FAILED"));

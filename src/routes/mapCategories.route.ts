@@ -1,19 +1,19 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { db } from "../../db/db";
-import { flairs } from "../../db/schema";
+import { mapCategories } from "../../db/schema";
 import { requireAuth } from "../middleware/auth.middleware";
 
 const router = Router();
 
 /**
  * @openapi
- * /flairs:
+ * /map-categories:
  *   get:
- *     tags: [Flairs]
- *     summary: "List map flairs"
+ *     tags: [Map Categories]
+ *     summary: "List map categories"
  *     description: "This endpoint is public."
- *     operationId: getFlairs
+ *     operationId: getMapCategories
  *     responses:
  *       200:
  *         description: The request completed successfully.
@@ -33,18 +33,18 @@ const router = Router();
  *       409:
  *         description: The request conflicts with the current resource state.
  */
-router.get("/flairs", async (_req, res) => {
-	res.json(await db.query.flairs.findMany());
+router.get("/map-categories", async (_req, res) => {
+	res.json(await db.query.mapCategories.findMany());
 });
 
 /**
  * @openapi
- * /flairs:
+ * /map-categories:
  *   post:
- *     tags: [Flairs]
- *     summary: "Create a map flair"
+ *     tags: [Map Categories]
+ *     summary: "Create a map category"
  *     description: "This endpoint requires an authenticated administrator."
- *     operationId: postFlairs
+ *     operationId: postMapCategories
  *     security:
  *       - BeatKhanaAuth: []
  *     x-required-roles:
@@ -76,40 +76,40 @@ router.get("/flairs", async (_req, res) => {
  *       409:
  *         description: The request conflicts with the current resource state.
  */
-router.post("/flairs", requireAuth, async (req, res) => {
+router.post("/map-categories", requireAuth, async (req, res) => {
 	if (!req.user?.permissions.some((permission) => ["role:admin", "role:dev"].includes(permission))) {
 		res.status(403).json({ error: { code: "FORBIDDEN", message: "An administrator is required" } });
 		return;
 	}
 	if (typeof req.body?.name !== "string" || !req.body.name.trim()) {
-		res.status(400).json({ error: { code: "INVALID_FLAIR", message: "name is required" } });
+		res.status(400).json({ error: { code: "INVALID_MAP_CATEGORY", message: "name is required" } });
 		return;
 	}
 	try {
-		const [created] = await db.insert(flairs).values({
+		const [created] = await db.insert(mapCategories).values({
 			name: req.body.name.trim(),
 			imageUrl: typeof req.body.imageUrl === "string" ? req.body.imageUrl : null,
 			color: typeof req.body.color === "string" ? req.body.color : null,
 		}).returning();
 		res.status(201).json(created);
 	} catch {
-		res.status(409).json({ error: { code: "FLAIR_CONFLICT", message: "The flair name or color is invalid" } });
+		res.status(409).json({ error: { code: "MAP_CATEGORY_CONFLICT", message: "The category name or color is invalid" } });
 	}
 });
 
 /**
  * @openapi
- * /flairs/{flairGuid}:
+ * /map-categories/{categoryGuid}:
  *   get:
- *     tags: [Flairs]
- *     summary: "Get a map flair"
+ *     tags: [Map Categories]
+ *     summary: "Get a map category"
  *     description: "This endpoint is public."
- *     operationId: getFlairsByFlairGuid
+ *     operationId: getMapCategoryByGuid
  *     parameters:
  *       - in: path
- *         name: flairGuid
+ *         name: categoryGuid
  *         required: true
- *         description: "Identifies the flairGuid resource."
+ *         description: "Identifies the categoryGuid resource."
  *         schema:
  *           type: string
  *     responses:
@@ -131,34 +131,34 @@ router.post("/flairs", requireAuth, async (req, res) => {
  *       409:
  *         description: The request conflicts with the current resource state.
  */
-router.get("/flairs/:flairGuid", async (req, res) => {
-	const flair = await db.query.flairs.findFirst({
-		where: eq(flairs.guid, String(req.params.flairGuid)),
+router.get("/map-categories/:categoryGuid", async (req, res) => {
+	const category = await db.query.mapCategories.findFirst({
+		where: eq(mapCategories.guid, String(req.params.categoryGuid)),
 	});
-	if (!flair) {
-		res.status(404).json({ error: { code: "FLAIR_NOT_FOUND", message: "Flair does not exist" } });
+	if (!category) {
+		res.status(404).json({ error: { code: "MAP_CATEGORY_NOT_FOUND", message: "Map category does not exist" } });
 		return;
 	}
-	res.json(flair);
+	res.json(category);
 });
 
 /**
  * @openapi
- * /flairs/{flairGuid}:
+ * /map-categories/{categoryGuid}:
  *   patch:
- *     tags: [Flairs]
- *     summary: "Update a map flair"
+ *     tags: [Map Categories]
+ *     summary: "Update a map category"
  *     description: "This endpoint requires an authenticated administrator."
- *     operationId: patchFlairsByFlairGuid
+ *     operationId: updateMapCategory
  *     security:
  *       - BeatKhanaAuth: []
  *     x-required-roles:
  *       - admin
  *     parameters:
  *       - in: path
- *         name: flairGuid
+ *         name: categoryGuid
  *         required: true
- *         description: "Identifies the flairGuid resource."
+ *         description: "Identifies the categoryGuid resource."
  *         schema:
  *           type: string
  *     requestBody:
@@ -188,7 +188,7 @@ router.get("/flairs/:flairGuid", async (req, res) => {
  *       409:
  *         description: The request conflicts with the current resource state.
  */
-router.patch("/flairs/:flairGuid", requireAuth, async (req, res) => {
+router.patch("/map-categories/:categoryGuid", requireAuth, async (req, res) => {
 	if (!req.user?.permissions.some((permission) => ["role:admin", "role:dev"].includes(permission))) {
 		res.status(403).json({ error: { code: "FORBIDDEN", message: "An administrator is required" } });
 		return;
@@ -197,9 +197,9 @@ router.patch("/flairs/:flairGuid", requireAuth, async (req, res) => {
 	for (const field of ["name", "imageUrl", "color"] as const) {
 		if (req.body?.[field] !== undefined) update[field] = req.body[field];
 	}
-	const [updated] = await db.update(flairs).set(update).where(eq(flairs.guid, String(req.params.flairGuid))).returning();
+	const [updated] = await db.update(mapCategories).set(update).where(eq(mapCategories.guid, String(req.params.categoryGuid))).returning();
 	if (!updated) {
-		res.status(404).json({ error: { code: "FLAIR_NOT_FOUND", message: "Flair does not exist" } });
+		res.status(404).json({ error: { code: "MAP_CATEGORY_NOT_FOUND", message: "Map category does not exist" } });
 		return;
 	}
 	res.json(updated);
@@ -207,21 +207,21 @@ router.patch("/flairs/:flairGuid", requireAuth, async (req, res) => {
 
 /**
  * @openapi
- * /flairs/{flairGuid}:
+ * /map-categories/{categoryGuid}:
  *   delete:
- *     tags: [Flairs]
- *     summary: "Delete a map flair"
+ *     tags: [Map Categories]
+ *     summary: "Delete a map category"
  *     description: "This endpoint requires an authenticated administrator."
- *     operationId: deleteFlairsByFlairGuid
+ *     operationId: deleteMapCategory
  *     security:
  *       - BeatKhanaAuth: []
  *     x-required-roles:
  *       - admin
  *     parameters:
  *       - in: path
- *         name: flairGuid
+ *         name: categoryGuid
  *         required: true
- *         description: "Identifies the flairGuid resource."
+ *         description: "Identifies the categoryGuid resource."
  *         schema:
  *           type: string
  *     responses:
@@ -238,14 +238,14 @@ router.patch("/flairs/:flairGuid", requireAuth, async (req, res) => {
  *       409:
  *         description: The request conflicts with the current resource state.
  */
-router.delete("/flairs/:flairGuid", requireAuth, async (req, res) => {
+router.delete("/map-categories/:categoryGuid", requireAuth, async (req, res) => {
 	if (!req.user?.permissions.some((permission) => ["role:admin", "role:dev"].includes(permission))) {
 		res.status(403).json({ error: { code: "FORBIDDEN", message: "An administrator is required" } });
 		return;
 	}
-	const removed = await db.delete(flairs).where(eq(flairs.guid, String(req.params.flairGuid))).returning({ guid: flairs.guid });
+	const removed = await db.delete(mapCategories).where(eq(mapCategories.guid, String(req.params.categoryGuid))).returning({ guid: mapCategories.guid });
 	if (!removed.length) {
-		res.status(404).json({ error: { code: "FLAIR_NOT_FOUND", message: "Flair does not exist" } });
+		res.status(404).json({ error: { code: "MAP_CATEGORY_NOT_FOUND", message: "Map category does not exist" } });
 		return;
 	}
 	res.status(204).send();

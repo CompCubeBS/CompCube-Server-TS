@@ -4,6 +4,7 @@ import { db } from "../../db/db";
 import {
 	matchHandMaps,
 	matchHands,
+	matchAuditEvents,
 	matchMapActions,
 	matchParticipants,
 	matchRounds,
@@ -152,6 +153,33 @@ router.get("/matches/:matchGuid/map-actions", async (req, res) => {
 		where: eq(matchMapActions.matchGuid, String(req.params.matchGuid)),
 		orderBy: matchMapActions.createdAt,
 		with: { map: true, user: true },
+}));
+});
+
+/**
+ * @openapi
+ * /matches/{matchGuid}/audit-events:
+ *   get:
+ *     tags: [Matches]
+ *     summary: "List grouped player and server match events"
+ *     description: "Returns the public match log, including timer-expiry server actions and timing details."
+ *     operationId: getMatchesByMatchGuidAuditEvents
+ *     parameters:
+ *       - in: path
+ *         name: matchGuid
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Grouped audit events in chronological order.
+ */
+router.get("/matches/:matchGuid/audit-events", async (req, res) => {
+	res.json(await db.query.matchAuditEvents.findMany({
+		where: eq(matchAuditEvents.matchGuid, String(req.params.matchGuid)),
+		orderBy: matchAuditEvents.createdAt,
+		with: { user: true, timer: true },
 	}));
 });
 
@@ -554,6 +582,7 @@ router.get("/matches/:matchGuid", async (req, res) => {
 			winner: true,
 			participants: { with: { user: true } },
 			statusHistory: { with: { actor: true } },
+			auditEvents: { with: { user: true, timer: true } },
 			timers: true,
 			hands: { with: { maps: { with: { map: true } } } },
 			mapActions: { with: { map: true, user: true } },

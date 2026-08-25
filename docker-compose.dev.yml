@@ -1,0 +1,23 @@
+services:
+  postgres:
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  server:
+    build:
+      context: .
+      target: development
+    restart: "no"
+    command: ["sh", "-c", "npm run db:setup && npm run dev"]
+    environment:
+      NODE_ENV: development
+      PLUGIN_RELEASE_DIRECTORY: /data/plugin-releases
+    volumes:
+      - .:/app
+      - server-node-modules:/app/node_modules
+      - compcube-plugin-releases:/data/plugin-releases
+    stdin_open: true
+    tty: true
+
+volumes:
+  server-node-modules:

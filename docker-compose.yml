@@ -6,8 +6,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-compcube}
       POSTGRES_USER: ${POSTGRES_USER:-compcube}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-compcube}
-    ports:
-      - "5432:5342"
     volumes:
       - compcube-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -17,17 +15,31 @@ services:
       retries: 10
 
   server:
-    build: .
+    build:
+      context: .
+      target: production
     restart: unless-stopped
-    env_file: [.env]
+    env_file:
+      - path: .env
+        required: false
     environment:
       PGCONNECTSTRING: postgres://${POSTGRES_USER:-compcube}:${POSTGRES_PASSWORD:-compcube}@postgres:5432/${POSTGRES_DB:-compcube}
+      PLUGIN_RELEASE_DIRECTORY: /data/plugin-releases
     ports:
       - "${REST_PORT:-7198}:7198"
       - "${WS_PORT:-8008}:8008"
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - compcube-plugin-releases:/data/plugin-releases
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7198/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
 volumes:
   compcube-postgres:
+  compcube-plugin-releases:

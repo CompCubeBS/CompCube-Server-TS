@@ -34,7 +34,7 @@ export function emitForfeitResult(
 	});
 }
 
-/** Broadcasts a persisted round result and whichever match phase follows it. */
+/** Broadcasts a persisted round result; non-terminal rounds remain in round_results. */
 export async function emitResolvedRound(
 	target: Server | Namespace,
 	result: ResolvedRound,
@@ -46,6 +46,7 @@ export async function emitResolvedRound(
 		redHealth: result.redHealth,
 		blueHealth: result.blueHealth,
 		scores: result.scores,
+		resultsDueAt: result.roundResultsDueAt?.toISOString() ?? null,
 	});
 
 	if (result.matchResult) {
@@ -73,9 +74,17 @@ export async function emitResolvedRound(
 		return;
 	}
 
-	const pick = await gameplayService.getPickState(result.matchGuid);
-	target.to(`match:${result.matchGuid}`).emit("pickPhaseStarted", {
-		matchGuid: result.matchGuid,
+	// A durable round-results timer starts and broadcasts the next pick phase later.
+}
+
+/** Broadcasts a newly started pick phase after its full deadline has been persisted. */
+export async function emitPickPhaseStarted(
+	target: Server | Namespace,
+	matchGuid: string,
+): Promise<void> {
+	const pick = await gameplayService.getPickState(matchGuid);
+	target.to(`match:${matchGuid}`).emit("pickPhaseStarted", {
+		matchGuid,
 		roundNumber: pick.roundNumber,
 		isOwnPick: false,
 		availableMaps: [],
@@ -83,7 +92,7 @@ export async function emitResolvedRound(
 		timerDueAt: pick.timerDueAt?.toISOString() ?? null,
 	});
 	target.to(`user:${pick.picker.userGuid}`).emit("pickPhaseStarted", {
-		matchGuid: result.matchGuid,
+		matchGuid,
 		roundNumber: pick.roundNumber,
 		isOwnPick: true,
 		availableMaps: pick.cards.map((map) => ({

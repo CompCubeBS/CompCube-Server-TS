@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { config } from "../config";
+import { pluginReleaseService } from "../services/pluginRelease.service";
 
 const router = Router();
 
@@ -54,13 +55,17 @@ router.get("/health", (req, res) =>
  *                   items: { type: string }
  *                 time: { type: string, format: date-time }
  */
-router.get("/server/status", (_req, res) => {
+router.get("/server/status", async (_req, res) => {
+	const releases = await pluginReleaseService.list();
+	const publishedVersions = [...new Set(releases.map((release) => release.pluginVersion))];
+	const supportedPluginVersions = config.pluginVersions.length ? config.pluginVersions : publishedVersions;
 	res.json({
 		status: "online",
 		state: 0,
-		allowedGameVersions: [],
-		allowedModVersions: config.pluginVersions,
-		supportedPluginVersions: config.pluginVersions,
+		allowedGameVersions: releases.map((release) => release.gameVersion),
+		allowedModVersions: supportedPluginVersions,
+		supportedPluginVersions,
+		servedPluginVersion: releases[0]?.pluginVersion ?? null,
 		time: new Date().toISOString(),
 	});
 });

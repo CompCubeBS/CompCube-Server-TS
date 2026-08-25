@@ -13,8 +13,9 @@ export const swaggerSpec = swaggerJsdoc({
 				+ "Paths are served directly from api.compcube.net without an /api prefix.",
 		},
 		servers: [{ url: config.publicApiUrl, description: config.nodeEnv }],
-		tags: [
+			tags: [
 			{ name: "System", description: "Health checks and game-server status" },
+			{ name: "Plugin Releases", description: "Published PCVR plugin metadata, downloads and CI uploads" },
 			{ name: "Authentication", description: "BeatKhana OAuth and account linking" },
 			{ name: "Accounts", description: "The authenticated CompCube account" },
 			{ name: "Users", description: "Public profiles and user administration" },
@@ -25,7 +26,7 @@ export const swaggerSpec = swaggerJsdoc({
 			{ name: "Pools", description: "Season map pools" },
 			{ name: "Map Pooling", description: "Legacy map-review queue and batch operations" },
 			{ name: "Maps", description: "Beat Saber maps, difficulties and modifiers" },
-			{ name: "Flairs", description: "Map categories and presentation metadata" },
+			{ name: "Map Categories", description: "Map categories and presentation metadata" },
 			{ name: "Queues", description: "Player matchmaking queues" },
 			{ name: "Mock Clients", description: "Private developer-controlled match clients" },
 			{ name: "Matches", description: "Persisted matches, participants, hands and state history" },
@@ -47,6 +48,12 @@ export const swaggerSpec = swaggerJsdoc({
 					in: "query",
 					name: "secret",
 					description: "Legacy map-pooling secret.",
+				},
+				PluginUploadToken: {
+					type: "http",
+					scheme: "bearer",
+					bearerFormat: "Opaque deployment token",
+					description: "The server PLUGIN_UPLOAD_SECRET. Intended only for the trusted CompCube plugin GitHub Actions workflow.",
 				},
 			},
 			responses: {
@@ -89,6 +96,19 @@ export const swaggerSpec = swaggerJsdoc({
 						avatarUrl: { type: "string", format: "uri", nullable: true },
 						permissions: { type: "array", items: { type: "string" } },
 						banned: { type: "boolean" },
+					},
+				},
+				PluginRelease: {
+					type: "object",
+					required: ["gameVersion", "pluginVersion", "fileName", "sha256", "size", "uploadedAt", "downloadUrl"],
+					properties: {
+						gameVersion: { type: "string", example: "1.40.8" },
+						pluginVersion: { type: "string", example: "0.2.1" },
+						fileName: { type: "string", example: "CompCube-bs1.40.8.dll" },
+						sha256: { type: "string", pattern: "^[0-9a-f]{64}$", example: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+						size: { type: "integer", format: "int64", minimum: 1, example: 482304 },
+						uploadedAt: { type: "string", format: "date-time" },
+						downloadUrl: { type: "string", format: "uri", example: `${config.publicApiUrl}/plugin-releases/1.40.8/download` },
 					},
 				},
 			},

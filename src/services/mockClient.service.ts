@@ -5,6 +5,7 @@ import {
 	maps,
 	matchHandMaps,
 	matchHands,
+	matchAuditEvents,
 	matchMapActions,
 	matchParticipants,
 	matches,
@@ -85,6 +86,10 @@ class MockClientService {
 			await tx.insert(matchMapActions).values([
 				...poolMaps.slice(0, 5).map((map) => ({ matchGuid: match.guid, userGuid: redUser.guid, mapGuid: map.guid, action: "dealt" as const })),
 				...poolMaps.slice(5).map((map) => ({ matchGuid: match.guid, userGuid: blueUser.guid, mapGuid: map.guid, action: "dealt" as const })),
+			]);
+			await tx.insert(matchAuditEvents).values([
+				{ matchGuid: match.guid, userGuid: redUser.guid, eventType: "initial_hand_dealt", source: "server", metadata: { mapGuids: poolMaps.slice(0, 5).map((map) => map.guid) }, createdAt: startedAt },
+				{ matchGuid: match.guid, userGuid: blueUser.guid, eventType: "initial_hand_dealt", source: "server", metadata: { mapGuids: poolMaps.slice(5).map((map) => map.guid) }, createdAt: startedAt },
 			]);
 			await tx.insert(matchStatusHistory).values({
 				matchGuid: match.guid,

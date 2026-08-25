@@ -44,7 +44,7 @@ export function registerAdminDecisionPacket(socket: AuthenticatedSocket): void {
 					if (!input.targetUserGuid || typeof mapGuid !== "string") {
 						throw new ServiceError("INVALID_DECISION", "force_pick requires targetUserGuid and payload.mapGuid", 400);
 					}
-					await gameplayService.selectMap(input.matchGuid, input.targetUserGuid, mapGuid);
+					await gameplayService.selectMap(input.matchGuid, input.targetUserGuid, mapGuid, { source: "server" });
 				} else if (input.action === "force_score") {
 					const payload = input.payload;
 					if (!input.targetUserGuid || typeof payload?.roundGuid !== "string") {
@@ -62,6 +62,7 @@ export function registerAdminDecisionPacket(socket: AuthenticatedSocket): void {
 							missCount: Number(payload.missCount),
 							fullCombo: payload.fullCombo === true,
 						},
+						{ source: "server" },
 					);
 				} else if (input.action === "set_health") {
 					const health = input.payload?.health;

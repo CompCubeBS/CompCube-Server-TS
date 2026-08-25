@@ -6,6 +6,7 @@ export interface SocketData {
 	user?: User;
 	clientType?: "plugin" | "website" | "mock";
 	pluginVersion?: string;
+	roundResultsSeconds?: number;
 }
 
 // Each packet handler owns its exact input/output type. Socket.IO itself stays open here so adding a packet
