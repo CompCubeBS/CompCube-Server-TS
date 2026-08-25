@@ -36,6 +36,7 @@ import { initialiseSocketManager } from "./websocket/wsManager";
 import { socketDocumentation } from "./websocket/socketDocumentation";
 import { socketDocumentationPage } from "./websocket/socketDocumentationPage";
 import { initialiseReplayRelay } from "./websocket/replayRelay";
+import { requestLogger } from "./middleware/requestLogger.middleware";
 
 const app = express();
 app.disable("x-powered-by");
@@ -51,6 +52,7 @@ app.use(
 		credentials: true,
 	}),
 );
+app.use(requestLogger);
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: false }));
 

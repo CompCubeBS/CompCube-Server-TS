@@ -43,6 +43,9 @@ export async function acknowledged<T>(ack: Ack<T>, action: () => Promise<T>): Pr
 		const serviceError = error instanceof ServiceError
 			? error
 			: new ServiceError("INTERNAL_ERROR", "The request could not be completed", 500);
+		if (!(error instanceof ServiceError)) {
+			console.error("[WebSocket]: Unexpected packet handler error", error);
+		}
 
 		ack({
 			ok: false,

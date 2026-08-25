@@ -26,6 +26,67 @@ import { registerSubmitScorePacket } from "./packets/submitScore/submitScore.pac
 import { registerWatchMatchPacket } from "./packets/watchMatch/watchMatch.packetHandler";
 import type { PublicSocket } from "./packets/common";
 
+interface PacketAcknowledgement {
+	ok?: unknown;
+	error?: {
+		code?: unknown;
+		message?: unknown;
+	};
+}
+
+/** Writes one safe structured Socket.IO log without including tokens or packet payloads. */
+function logSocketEvent(
+	socket: PublicSocket,
+	event: string,
+	details: Record<string, unknown> = {},
+): void {
+	console.info(JSON.stringify({
+		timestamp: new Date().toISOString(),
+		type: "socket_event",
+		event,
+		socketId: socket.id,
+		clientType: socket.data.clientType ?? null,
+		pluginVersion: socket.data.pluginVersion ?? null,
+		userGuid: socket.data.user?.guid ?? null,
+		platformId: socket.data.user?.platformId ?? null,
+		...details,
+	}));
+}
+
+/** Wraps packet acknowledgements so every accepted or rejected client request is visible in logs. */
+function registerSocketRequestLogging(socket: PublicSocket): void {
+	socket.use((packet, next) => {
+		const event = typeof packet[0] === "string" ? packet[0] : "unknown";
+		const startedAt = process.hrtime.bigint();
+		const acknowledgementIndex = packet.length - 1;
+		const acknowledgement = packet[acknowledgementIndex];
+
+		if (typeof acknowledgement !== "function") {
+			logSocketEvent(socket, event, { acknowledgement: false });
+			next();
+			return;
+		}
+
+		packet[acknowledgementIndex] = (response: PacketAcknowledgement) => {
+			const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+			const ok = response?.ok === true;
+			logSocketEvent(socket, event, {
+				acknowledgement: true,
+				ok,
+				durationMs: Number(durationMs.toFixed(2)),
+				errorCode: ok || typeof response?.error?.code !== "string"
+					? null
+					: response.error.code,
+				errorMessage: ok || typeof response?.error?.message !== "string"
+					? null
+					: response.error.message,
+			});
+			acknowledgement(response);
+		};
+		next();
+	});
+}
+
 /** Authenticates Socket.IO clients and registers every client-to-server packet event. */
 export function initialiseSocketManager(io: Server): void {
 	timerService.register("custom", async () => {
@@ -147,13 +208,24 @@ export function initialiseSocketManager(io: Server): void {
 
 			// Public spectators can connect without an account. Only public packet handlers are registered for them below.
 			next();
-		} catch {
+		} catch (error) {
+			console.warn(JSON.stringify({
+				timestamp: new Date().toISOString(),
+				type: "socket_authentication",
+				ok: false,
+				socketId: socket.id,
+				clientType: socket.data.clientType ?? null,
+				pluginVersion: socket.data.pluginVersion ?? null,
+				error: error instanceof Error ? error.message : "Unknown authentication error",
+			}));
 			next(new Error("AUTH_FAILED"));
 		}
 	});
 
 	io.on("connection", (rawSocket) => {
 		const socket = rawSocket as PublicSocket;
+		registerSocketRequestLogging(socket);
+		logSocketEvent(socket, "connection", { ok: true });
 		registerHelloPacket(socket); // Client -> server: "hello" (public)
 		registerGetMatchStatePacket(socket); // Client -> server: "getMatchState" (public)
 		registerWatchMatchPacket(socket); // Client -> server: "watchMatch" (public)
@@ -191,7 +263,8 @@ export function initialiseSocketManager(io: Server): void {
 		// matchCreated, cardsUpdated, pickPhaseStarted, playerSelectedMap,
 		// roundStarted, roundResults, timerUpdated, matchPaused, matchResumed,
 		// matchFinished, opponentDisconnected and serverError.
-		authenticatedSocket.on("disconnect", () => {
+		authenticatedSocket.on("disconnect", (reason) => {
+			logSocketEvent(authenticatedSocket, "disconnect", { reason });
 			void (async () => {
 				await queueService.leave(authenticatedSocket.data.user.guid);
 				if (authenticatedSocket.data.clientType === "plugin") {
