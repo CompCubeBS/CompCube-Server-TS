@@ -624,6 +624,17 @@ export const oauthStates = pgTable("oauth_states", {
 ]);
 
 /**
+ * Player reports
+ * Whenever a player reports a match, the report is stored in this table
+ */
+export const playerReportedMatches = pgTable("player_reported_matches", {
+    guid: uuid("guid").defaultRandom().primaryKey(),
+    matchGuid: uuid("match_guid").notNull().references(() => matches.guid, { onDelete: "cascade", onUpdate: "cascade" }),
+    reporterGuid: uuid("reporter_guid").notNull().references(() => users.guid, { onDelete: "cascade", onUpdate: "cascade" }),
+    createdAt: timestamptz("created_at"),
+});
+
+/**
  * Relations
  * Every table association is kept here so it can be reused with Drizzle's relational queries.
  */
