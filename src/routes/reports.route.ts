@@ -1,5 +1,5 @@
 import {Router} from "express";
-import {matches, playerReportedMatches, reports} from "../../db/schema";
+import {matches, reports} from "../../db/schema";
 import {db} from "../../db/db";
 import {requireAuth, requireModerator} from "../middleware/auth.middleware";
 import {eq} from "drizzle-orm";
