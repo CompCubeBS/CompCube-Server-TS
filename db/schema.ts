@@ -49,6 +49,7 @@ export const matchMapActionEnum = pgEnum("match_map_action", ["dealt", "discarde
 export const timerKindEnum = pgEnum("timer_kind", ["discard", "pick", "map_countdown", "score_submission", "round_results", "disconnect_grace", "custom"]);
 export const timerStatusEnum = pgEnum("timer_status", ["scheduled", "processing", "paused", "completed", "cancelled", "failed"]);
 export const moderationActionEnum = pgEnum("moderation_action", ["timeout", "ban"]);
+export const reportSourceEnum = pgEnum("report_source", ["website", "plugin"]);
 
 /**
  * Users Table
@@ -627,12 +628,17 @@ export const oauthStates = pgTable("oauth_states", {
  * Player reports
  * Whenever a player reports a match, the report is stored in this table
  */
-export const playerReportedMatches = pgTable("player_reported_matches", {
+export const reports = pgTable("reports", {
     guid: uuid("guid").defaultRandom().primaryKey(),
-    matchGuid: uuid("match_guid").notNull().references(() => matches.guid, { onDelete: "cascade", onUpdate: "cascade" }),
-    reporterGuid: uuid("reporter_guid").notNull().references(() => users.guid, { onDelete: "cascade", onUpdate: "cascade" }),
-    createdAt: timestamptz("created_at"),
+    matchGuid: uuid("match_guid").references(() => matches.guid, { onDelete: "cascade", onUpdate: "cascade" }),
+    senderUserGuid: uuid("sender_user_guid").notNull().references(() => users.guid, { onDelete: "cascade", onUpdate: "cascade" }),
+    targetUserGuid: uuid("target_user_guid").notNull().references(() => users.guid, { onDelete: "cascade", onUpdate: "cascade" }),
+    reason: text("reason").notNull().default(""),
+    reportSource: reportSourceEnum("report_source").notNull().default("plugin"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    resolved: boolean("resolved").notNull().default(false),
 });
+
 
 /**
  * Relations

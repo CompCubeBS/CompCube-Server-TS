@@ -63,6 +63,52 @@ export async function requireAuth(
 	}
 }
 
+export async function requireModerator(
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> {
+	const token = readAccessToken(req);
+	if (!token) {
+		res.status(401).json({
+			error: {
+				code: "AUTH_REQUIRED",
+				message: "Provide a BeatKhana bearer token",
+			},
+		});
+		return;
+	}
+	try {
+		const claims = beatKhanaService.verifyAccessToken(token);
+		req.user = (
+			await accountService.upsertFromBeatKhanaToken(
+				claims,
+				config.beatKhana.linkingUrl,
+			)
+		).user;
+
+		if (!req.user.permissions.some(p => ["role:admin", "role:dev", "role:moderator"].includes(p))) {
+			return res.status(403).json(
+				{
+					error: {
+						code: "FORBIDDEN",
+						message: "An administrator is required."
+					}
+				});
+		}
+
+		next();
+	} catch (error) {
+		const authError = error instanceof BeatKhanaTokenError ? error : null;
+		res.status(authError?.status ?? 401).json({
+			error: {
+				code: authError?.code ?? "INVALID_TOKEN",
+				message: authError?.message ?? "BeatKhana authentication failed",
+			},
+		});
+	}
+}
+
 /** Attaches a valid local account when available while keeping public reads public. */
 export async function optionalAuth(
 	req: Request,
