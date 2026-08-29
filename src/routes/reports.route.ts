@@ -57,7 +57,7 @@ router.post("/report", requireAuth, async (req, res) => {
 
     let report = await db.insert(reports).values({
         targetUserGuid: targetUser.guid,
-        senderUserGuid: req.user.guid,
+        senderUserGuid: req.user!.guid,
         reason: reason.trim() ?? "",
         reportSource: req.body.source,
         matchGuid: targetMatch ? targetMatch.guid : null,
@@ -66,9 +66,10 @@ router.post("/report", requireAuth, async (req, res) => {
     return res.status(200).json(report[0]);
 });
 
-router.post("/report/:guid/resolve", requireModerator(), async (req, res) => {
+router.post("/report/:guid/resolve", requireModerator, async (req, res) => {
+
     let targetReport = await db.query.reports.findFirst({
-        where: eq(matches.guid, req.params.guid)
+        where: eq(reports.guid, req.params.guid as string)
     });
 
     if (!targetReport) {
@@ -84,7 +85,7 @@ router.post("/report/:guid/resolve", requireModerator(), async (req, res) => {
         resolved: true
     }).where(eq(reports.guid, targetReport.guid)).returning();
 
-    return res.status(400).json(updatedReport[0]);
+    return res.status(200).json(updatedReport[0]);
 });
 
 router.get("/reports", requireModerator, async (req, res) => {
@@ -94,7 +95,7 @@ router.get("/reports", requireModerator, async (req, res) => {
 });
 
 router.get("/reports/:userGuid", requireModerator, async (req, res) => {
-    const targetUser = await accountService.getByGuid(req.params.userGuid);
+    const targetUser = await accountService.getByGuid(req.params.userGuid as string);
 
     if (!targetUser) {
         return res.status(404).json({
@@ -105,9 +106,11 @@ router.get("/reports/:userGuid", requireModerator, async (req, res) => {
         });
     }
 
-    const reports = await db.query.reports.findMany({
+    const allReports = await db.query.reports.findMany({
         where: eq(reports.targetUserGuid, targetUser.guid)
     });
 
-    return res.status(200).json(reports);
+    return res.status(200).json(allReports);
 });
+
+export default router;

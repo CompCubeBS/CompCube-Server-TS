@@ -88,13 +88,14 @@ export async function requireModerator(
 		).user;
 
 		if (!req.user.permissions.some(p => ["role:admin", "role:dev", "role:moderator"].includes(p))) {
-			return res.status(403).json(
+				res.status(403).json(
 				{
 					error: {
 						code: "FORBIDDEN",
 						message: "An administrator is required."
 					}
 				});
+				return;
 		}
 
 		next();
