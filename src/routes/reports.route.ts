@@ -2,7 +2,7 @@ import {Router} from "express";
 import {matches, reports} from "../../db/schema";
 import {db} from "../../db/db";
 import {requireAuth, requireModerator} from "../middleware/auth.middleware";
-import {eq} from "drizzle-orm";
+import {and, eq} from "drizzle-orm";
 import {accountService} from "../services/account.service";
 
 const router = Router();
@@ -36,6 +36,19 @@ router.post("/report", requireAuth, async (req, res) => {
                 code: "TARGET_USER_NOT_FOUND",
                 message: "Target user could not be found."
             }})
+    }
+
+    const lastReportAgainstPlayer = await db.query.reports.findFirst({
+        where: and(eq(reports.targetUserGuid, targetUser.guid), eq(reports.senderUserGuid, req.user!.guid))
+    });
+
+    if (lastReportAgainstPlayer && lastReportAgainstPlayer.createdAt > new Date(Date.now() - 1000 * 60 * 60 * 24)) {
+        return res.status(403).json({
+            error: {
+                code: "TOO_MANY_REPORTS",
+                message: "You have reported this player too recently."
+            }
+        })
     }
 
     const reason = req.body.reason;
