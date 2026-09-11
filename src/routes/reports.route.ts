@@ -105,7 +105,7 @@ router.post("/report/:guid/resolve", requireModerator, async (req, res) => {
 });
 
 router.get("/reports", requireModerator, async (req, res) => {
-    let filter = req.body.filter;
+    let filter = req.query.filter;
 
     let filteredReports;
 
