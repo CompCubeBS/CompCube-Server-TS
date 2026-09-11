@@ -12,7 +12,7 @@ router.post("/report", requireAuth, async (req, res) => {
         return res.status(400).json({
             error: {
                 code: "INVALID_BODY",
-                message: "target user guid, and source are required."
+                message: "Target user guid and source are required."
             }
         });
     }
@@ -49,6 +49,21 @@ router.post("/report", requireAuth, async (req, res) => {
                 message: "You have reported this player too recently."
             }
         })
+    }
+
+    const pastReports = await db.query.reports.findMany({
+        where: and(
+            eq(reports.senderUserGuid, req.user!.guid),
+            eq(reports.targetUserGuid, targetUser.guid)
+        )
+    });
+
+    if(pastReports.length > 0) {
+        const latestReportTime = new Date(pastReports[0].createdAt);
+
+        if(latestReportTime >= new Date((Date.now() - 1000 * 60 * 60 * 24))) {
+            return res.status(403).json({ error: { code: "TOO_MANY_REPORTS", message: "You have already reported this user in the past 24 hours. Please wait and try again later." } });
+        }
     }
 
     const reason = req.body.reason;
