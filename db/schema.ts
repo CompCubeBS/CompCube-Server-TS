@@ -662,6 +662,8 @@ export const usersRelations = relations(users, ({ many }) => ({
     ownedMockMatches: many(matches, { relationName: "mockOwner" }),
     ownedMockClients: many(mockClients, { relationName: "mockClientOwner" }),
     mockClientIdentities: many(mockClients, { relationName: "mockClientIdentity" }),
+    sentReports: many(reports, { relationName: "reportSender" }),
+    receivedReports: many(reports, { relationName: "reportTarget" }),
 }));
 
 export const userModerationActionsRelations = relations(userModerationActions, ({ one }) => ({
@@ -778,6 +780,7 @@ export const matchesRelations = relations(matches, ({ one, many }) => ({
     hands: many(matchHands),
     mapActions: many(matchMapActions),
     rounds: many(matchRounds),
+    reports: many(reports)
 }));
 
 export const mockClientsRelations = relations(mockClients, ({ one }) => ({
@@ -910,6 +913,23 @@ export const matchScoresRelations = relations(matchScores, ({ one }) => ({
         fields: [matchScores.userGuid],
         references: [users.guid],
     }),
+}));
+
+export const reportsRelations = relations(reports, ({ one }) => ({
+    sender: one(users, {
+        fields: [reports.senderUserGuid],
+        references: [users.guid],
+        relationName: "reportSender"
+    }),
+    target: one(users, {
+        fields: [reports.targetUserGuid],
+        references: [users.guid],
+        relationName: "reportTarget"
+    }),
+    match: one(matches, {
+        fields: [reports.matchGuid],
+        references: [matches.guid]
+    })
 }));
 
 export type User = typeof users.$inferSelect;
