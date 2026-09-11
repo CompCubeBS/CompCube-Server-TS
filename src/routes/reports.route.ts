@@ -32,10 +32,12 @@ router.post("/report", requireAuth, async (req, res) => {
     }
 
     if (!targetUser) {
-        return res.status(404).json({ error: {
+        return res.status(404).json({
+            error: {
                 code: "TARGET_USER_NOT_FOUND",
                 message: "Target user could not be found."
-            }})
+            }
+        });
     }
 
     const lastReportAgainstPlayer = await db.query.reports.findFirst({
@@ -51,21 +53,6 @@ router.post("/report", requireAuth, async (req, res) => {
         })
     }
 
-    const pastReports = await db.query.reports.findMany({
-        where: and(
-            eq(reports.senderUserGuid, req.user!.guid),
-            eq(reports.targetUserGuid, targetUser.guid)
-        )
-    });
-
-    if(pastReports.length > 0) {
-        const latestReportTime = new Date(pastReports[0].createdAt);
-
-        if(latestReportTime >= new Date((Date.now() - 1000 * 60 * 60 * 24))) {
-            return res.status(403).json({ error: { code: "TOO_MANY_REPORTS", message: "You have already reported this user in the past 24 hours. Please wait and try again later." } });
-        }
-    }
-
     const reason = req.body.reason;
 
     let targetMatch;
@@ -76,10 +63,12 @@ router.post("/report", requireAuth, async (req, res) => {
         });
 
         if (!targetMatch){
-            return res.status(404).json({error: {
+            return res.status(404).json({
+                error: {
                     code: "TARGET_MATCH_NOT_FOUND",
                     message: "An error occurred while trying to find the target user."
-                }})
+                }
+            });
         }
     }
 
@@ -95,7 +84,6 @@ router.post("/report", requireAuth, async (req, res) => {
 });
 
 router.post("/report/:guid/resolve", requireModerator, async (req, res) => {
-
     let targetReport = await db.query.reports.findFirst({
         where: eq(reports.guid, req.params.guid as string)
     });
@@ -117,9 +105,49 @@ router.post("/report/:guid/resolve", requireModerator, async (req, res) => {
 });
 
 router.get("/reports", requireModerator, async (req, res) => {
-    const reports = await db.query.reports.findMany();
+    let filter = req.body.filter;
 
-    return res.status(200).json(reports);
+    let filteredReports;
+
+    if (!filter)
+        filter = "all";
+
+    if (filter === "all")
+        filteredReports = await db.query.reports.findMany({
+            with: {
+                sender: true,
+                target: true
+            }
+        });
+
+    if (filter === "resolved")
+        filteredReports = await db.query.reports.findMany({
+            with: {
+                sender: true,
+                target: true
+            },
+            // i assume this is how you are supposed to check this
+            where: eq(reports.resolved, true)
+        });
+
+    if (filter === "unresolved")
+        filteredReports = await db.query.reports.findMany({
+            with: {
+                sender: true,
+                target: true
+            },
+            where: eq(reports.resolved, false)
+        });
+
+    if (!filteredReports)
+        return res.status(400).json({
+            error: {
+                code: "INVALID_BODY",
+                message: "Body contains invalid filter. Must be all, unresolved, or resolved."
+            }
+        });
+
+    return res.status(200).json(filteredReports);
 });
 
 router.get("/reports/:userGuid", requireModerator, async (req, res) => {
