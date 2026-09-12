@@ -142,8 +142,8 @@ router.get("/reports", requireModerator, async (req, res) => {
     if (!filteredReports)
         return res.status(400).json({
             error: {
-                code: "INVALID_BODY",
-                message: "Body contains invalid filter. Must be all, unresolved, or resolved."
+                code: "INVALID_QUERY",
+                message: "Query contains invalid filter. Must be all, unresolved, or resolved."
             }
         });
 
