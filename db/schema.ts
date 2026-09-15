@@ -49,6 +49,7 @@ export const matchMapActionEnum = pgEnum("match_map_action", ["dealt", "discarde
 export const timerKindEnum = pgEnum("timer_kind", ["discard", "pick", "map_countdown", "score_submission", "round_results", "disconnect_grace", "custom"]);
 export const timerStatusEnum = pgEnum("timer_status", ["scheduled", "processing", "paused", "completed", "cancelled", "failed"]);
 export const moderationActionEnum = pgEnum("moderation_action", ["timeout", "ban"]);
+export const reportSourceEnum = pgEnum("report_source", ["website", "plugin"]);
 
 /**
  * Users Table
@@ -624,6 +625,22 @@ export const oauthStates = pgTable("oauth_states", {
 ]);
 
 /**
+ * Player reports
+ * Whenever a player reports a match, the report is stored in this table
+ */
+export const reports = pgTable("reports", {
+    guid: uuid("guid").defaultRandom().primaryKey(),
+    matchGuid: uuid("match_guid").references(() => matches.guid, { onDelete: "cascade", onUpdate: "cascade" }),
+    senderUserGuid: uuid("sender_user_guid").notNull().references(() => users.guid, { onDelete: "cascade", onUpdate: "cascade" }),
+    targetUserGuid: uuid("target_user_guid").notNull().references(() => users.guid, { onDelete: "cascade", onUpdate: "cascade" }),
+    reason: text("reason").notNull().default(""),
+    reportSource: reportSourceEnum("report_source").notNull().default("plugin"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    resolved: boolean("resolved").notNull().default(false),
+});
+
+
+/**
  * Relations
  * Every table association is kept here so it can be reused with Drizzle's relational queries.
  */
@@ -645,6 +662,8 @@ export const usersRelations = relations(users, ({ many }) => ({
     ownedMockMatches: many(matches, { relationName: "mockOwner" }),
     ownedMockClients: many(mockClients, { relationName: "mockClientOwner" }),
     mockClientIdentities: many(mockClients, { relationName: "mockClientIdentity" }),
+    sentReports: many(reports, { relationName: "reportSender" }),
+    receivedReports: many(reports, { relationName: "reportTarget" }),
 }));
 
 export const userModerationActionsRelations = relations(userModerationActions, ({ one }) => ({
@@ -761,6 +780,7 @@ export const matchesRelations = relations(matches, ({ one, many }) => ({
     hands: many(matchHands),
     mapActions: many(matchMapActions),
     rounds: many(matchRounds),
+    reports: many(reports)
 }));
 
 export const mockClientsRelations = relations(mockClients, ({ one }) => ({
@@ -893,6 +913,23 @@ export const matchScoresRelations = relations(matchScores, ({ one }) => ({
         fields: [matchScores.userGuid],
         references: [users.guid],
     }),
+}));
+
+export const reportsRelations = relations(reports, ({ one }) => ({
+    sender: one(users, {
+        fields: [reports.senderUserGuid],
+        references: [users.guid],
+        relationName: "reportSender"
+    }),
+    target: one(users, {
+        fields: [reports.targetUserGuid],
+        references: [users.guid],
+        relationName: "reportTarget"
+    }),
+    match: one(matches, {
+        fields: [reports.matchGuid],
+        references: [matches.guid]
+    })
 }));
 
 export type User = typeof users.$inferSelect;

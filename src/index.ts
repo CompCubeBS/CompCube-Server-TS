@@ -29,6 +29,7 @@ import usersRouter from "./routes/users.route";
 import systemRouter from "./routes/system.route";
 import pluginReleasesRouter from "./routes/pluginReleases.route";
 import templateRouter from "./routes/template-ts.route";
+import reportsRouter from "./routes/reports.route";
 import { timerService } from "./services/timer.service";
 import { beatKhanaService } from "./services/beatkhana.service";
 import { startupService } from "./services/startup.service";
@@ -80,6 +81,7 @@ app.use(scoresRouter);
 app.use(seasonsRouter);
 app.use(timersRouter);
 app.use(usersRouter);
+app.use(reportsRouter);
 app.get("/docs/ws", (_req, res) =>
 	res.type("html").send(socketDocumentationPage()),
 );
