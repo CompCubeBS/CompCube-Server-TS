@@ -50,7 +50,7 @@ app.set(
 app.use(
 	cors({
 		// When every origin is allowed, cors reflects the request origin instead of sending `*`.
-		// This lets the website include its OAuth cookies while keeping the response valid in browsers.
+		// Credentials support OAuth cookie storage/lifecycle; endpoint auth still requires bearer headers.
 		origin: config.corsOrigin === "*" ? true : config.corsOrigin,
 		credentials: true,
 	}),

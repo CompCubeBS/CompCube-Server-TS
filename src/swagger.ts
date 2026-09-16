@@ -10,7 +10,8 @@ export const swaggerSpec = swaggerJsdoc({
 			version: "1.0.0",
 			description:
 				"CompCube accounts, matchmaking, map pools and persisted match-state API. "
-				+ "Paths are served directly from api.compcube.net without an /api prefix.",
+				+ "Paths are served directly from api.compcube.net without an /api prefix. "
+				+ "Protected REST endpoints authenticate exclusively with an Authorization: Bearer header; OAuth cookies are frontend session storage and are never API credentials.",
 		},
 		servers: [{ url: config.publicApiUrl, description: config.nodeEnv }],
 			tags: [
@@ -45,11 +46,11 @@ export const swaggerSpec = swaggerJsdoc({
 					bearerFormat: "BeatKhana access token",
 					description: "A BeatKhana OAuth access token sent as `Authorization: Bearer <token>`.",
 				},
-				SessionCookie: {
-					type: "apiKey",
-					in: "cookie",
-					name: "cc_auth_token",
-					description: "The HttpOnly BeatKhana access-token cookie set by the CompCube OAuth callback. Browser clients must send credentials.",
+				BeatKhanaRefreshToken: {
+					type: "http",
+					scheme: "bearer",
+					bearerFormat: "BeatKhana refresh token",
+					description: "A BeatKhana OAuth refresh token sent as `Authorization: Bearer <refresh-token>` to the refresh endpoint.",
 				},
 				PoolSecret: {
 					type: "apiKey",

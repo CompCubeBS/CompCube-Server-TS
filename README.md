@@ -28,7 +28,9 @@ Non-final rounds enter `round_results` for `ROUND_RESULTS_SECONDS` (six seconds 
 
 ## Authentication and account linking
 
-Browser/native login uses BeatKhana OAuth with the `compcube` scope. Game clients use the same signed BeatKhana JWT after exchanging a Steam, Meta PC, or ScoreSaber proof with BeatKhana. `BK_CLIENT_ID` and `BK_CLIENT_SECRET` only come from the environment.
+Browser/native login uses BeatKhana OAuth with the required `rest:user:read` and `compcube` scopes. Game clients use the same signed BeatKhana JWT after exchanging a Steam, Meta PC, or ScoreSaber proof with BeatKhana. `BK_CLIENT_ID` and `BK_CLIENT_SECRET` only come from the environment.
+
+Protected REST endpoints authenticate exclusively with `Authorization: Bearer <access-token>`. The API never treats `cc_auth_token` or `cc_refresh_token` cookies as credentials. The OAuth redirect flow may set those HttpOnly cookies for frontend session storage, but the website reads the stored token at its server boundary and sends it to the API in the Authorization header. `POST /oauth/refresh` likewise expects `Authorization: Bearer <refresh-token>` rather than a cookie or JSON field.
 
 At startup the server fetches BeatKhana's RS256 public key from `BK_PUBLIC_KEY_URL`. Every REST and Socket.IO authentication verifies the JWT signature, `iat`/`nbf`/`exp` dates, and the required `compcube` scope locally; CompCube does not query BeatKhana for user details on each request.
 

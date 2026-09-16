@@ -12,19 +12,9 @@ declare global {
 	}
 }
 
-/** Reads a BeatKhana access token from the bearer header or the secure login cookie. */
+/** Reads a BeatKhana access token exclusively from the Authorization header. */
 export function readAccessToken(req: Request): string | null {
-	const bearer = req.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
-	if (bearer) return bearer;
-	const cookies = Object.fromEntries(
-		(req.get("cookie") ?? "")
-			.split(";")
-			.map((item) => item.trim().split(/=(.*)/, 2))
-			.filter(([key]) => key),
-	);
-	return cookies.cc_auth_token
-		? decodeURIComponent(cookies.cc_auth_token)
-		: null;
+	return req.get("authorization")?.match(/^Bearer[ \t]+(.+)$/i)?.[1]?.trim() || null;
 }
 
 /** Validates BeatKhana identity, reconciles the local account and attaches it to the request. */
@@ -127,7 +117,7 @@ export async function optionalAuth(
 			await accountService.upsertFromBeatKhanaToken(claims, config.beatKhana.linkingUrl)
 		).user;
 	} catch {
-		// An expired browser cookie must not break otherwise public views.
+		// An invalid optional bearer token must not break otherwise public views.
 	}
 	next();
 }

@@ -18,14 +18,13 @@ const router = Router();
  *       to match participants: a logged-in user may report from a player profile, and a spectator
  *       may report behavior they observed.
  *
- *       Authentication is required through either a BeatKhana bearer token or the `cc_auth_token`
- *       browser session cookie. The authenticated account is always used as the sender. A match GUID
+ *       Authentication requires a BeatKhana access token in the `Authorization: Bearer <token>`
+ *       header. The authenticated account is always used as the sender. A match GUID
  *       may be supplied as optional supporting context, but the report remains valid without one.
  *       A user cannot report themself and cannot report the same target more than once per 24 hours.
  *     operationId: createPlayerReport
  *     security:
  *       - BeatKhanaAuth: []
- *       - SessionCookie: []
  *     requestBody:
  *       required: true
  *       content:
@@ -63,7 +62,7 @@ const router = Router();
  *               selfReport:
  *                 value: { error: { code: SELF_REPORT, message: You cannot report yourself. } }
  *       401:
- *         description: No valid BeatKhana bearer token or session cookie was provided.
+ *         description: No valid BeatKhana bearer token was provided in the Authorization header.
  *         content:
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
@@ -179,7 +178,6 @@ router.post("/report", requireAuth, async (req, res) => {
  *     operationId: resolvePlayerReport
  *     security:
  *       - BeatKhanaAuth: []
- *       - SessionCookie: []
  *     x-required-permissions: [role:moderator, role:admin, role:dev]
  *     parameters:
  *       - in: path
@@ -237,7 +235,6 @@ router.post("/report/:guid/resolve", requireModerator, async (req, res) => {
  *     operationId: listPlayerReports
  *     security:
  *       - BeatKhanaAuth: []
- *       - SessionCookie: []
  *     x-required-permissions: [role:moderator, role:admin, role:dev]
  *     parameters:
  *       - in: query
@@ -325,7 +322,6 @@ router.get("/reports", requireModerator, async (req, res) => {
  *     operationId: listPlayerReportsByTarget
  *     security:
  *       - BeatKhanaAuth: []
- *       - SessionCookie: []
  *     x-required-permissions: [role:moderator, role:admin, role:dev]
  *     parameters:
  *       - in: path

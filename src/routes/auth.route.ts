@@ -184,7 +184,9 @@ router.get("/callback", async (req, res) => {
  *   post:
  *     tags: [Authentication]
  *     summary: Refresh a BeatKhana OAuth token
- *     description: Uses the HttpOnly refresh cookie by default, or a refreshToken JSON field for native clients.
+ *     description: "Requires the BeatKhana refresh token in `Authorization: Bearer <refresh-token>`. Cookies are not accepted as API credentials."
+ *     security:
+ *       - BeatKhanaRefreshToken: []
  *     responses:
  *       200:
  *         description: The request completed successfully.
@@ -205,23 +207,15 @@ router.get("/callback", async (req, res) => {
  *         description: The request conflicts with the current resource state.
  */
 router.post("/refresh", async (req, res) => {
-	const cookies = Object.fromEntries(
-		(req.get("cookie") ?? "")
-			.split(";")
-			.map((item) => item.trim().split(/=(.*)/, 2))
-			.filter(([key]) => key),
-	);
-	const refreshToken =
-		typeof req.body?.refreshToken === "string"
-			? req.body.refreshToken
-			: cookies.cc_refresh_token
-				? decodeURIComponent(cookies.cc_refresh_token)
-				: "";
+	const refreshToken = req
+		.get("authorization")
+		?.match(/^Bearer[ \t]+(.+)$/i)?.[1]
+		?.trim();
 	if (!refreshToken) {
 		res.status(401).json({
 			error: {
 				code: "REFRESH_TOKEN_REQUIRED",
-				message: "No refresh token was provided",
+				message: "Provide the refresh token as Authorization: Bearer <refresh-token>",
 			},
 		});
 		return;
