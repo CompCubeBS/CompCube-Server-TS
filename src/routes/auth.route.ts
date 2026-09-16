@@ -160,6 +160,23 @@ router.get("/callback", async (req, res) => {
 		if (!account.canQueue) {
 			redirect.searchParams.set("linkRequired", "true");
 		}
+		console.info(JSON.stringify({
+			timestamp: new Date().toISOString(),
+			type: "oauth_session_issued",
+			accountGuid: account.user.guid,
+			cookieDomain: config.authCookieDomain ?? null,
+			secure,
+			sameSite: "lax",
+			accessTokenExpiresInSeconds: token.expires_in,
+			refreshTokenPresent: Boolean(token.refresh_token),
+			setCookieHeaderCount: Array.isArray(res.getHeader("set-cookie"))
+				? (res.getHeader("set-cookie") as string[]).length
+				: res.getHeader("set-cookie")
+					? 1
+					: 0,
+			redirectOrigin: redirect.origin,
+			redirectPath: redirect.pathname,
+		}));
 		res.redirect(redirect.toString());
 	} catch (error) {
 		console.error("[OAuth]: BeatKhana callback failed", error);

@@ -13,6 +13,11 @@ export function requestLogger(
 	next: NextFunction,
 ): void {
 	const requestId = req.get("x-request-id") ?? req.get("cf-ray") ?? randomUUID();
+	const authorization = req.get("authorization");
+	const bearerTokenPresent = Boolean(
+		authorization?.match(/^Bearer[ \t]+(.+)$/i)?.[1]?.trim(),
+	);
+	const cookie = req.get("cookie") ?? "";
 	const startedAt = process.hrtime.bigint();
 	let responseError: LoggedError | null = null;
 	const sendJson = res.json.bind(res);
@@ -45,6 +50,11 @@ export function requestLogger(
 			userGuid: req.user?.guid ?? null,
 			clientIp: req.ip,
 			userAgent: req.get("user-agent") ?? null,
+			authorizationPresent: Boolean(authorization),
+			bearerTokenPresent,
+			cookieHeaderPresent: Boolean(cookie),
+			accessCookiePresent: /(?:^|;\s*)cc_auth_token=/.test(cookie),
+			refreshCookiePresent: /(?:^|;\s*)cc_refresh_token=/.test(cookie),
 			errorCode: responseError?.code ?? null,
 			errorMessage: responseError?.message ?? null,
 		}));
