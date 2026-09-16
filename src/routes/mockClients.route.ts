@@ -1,10 +1,12 @@
 import { Router } from "express";
 import { and, eq } from "drizzle-orm";
+import type { Server } from "socket.io";
 import { db } from "../../db/db";
 import { mockClients } from "../../db/schema";
 import { requireAuth } from "../middleware/auth.middleware";
 import { gameplayService } from "../services/gameplay.service";
 import { mockClientService } from "../services/mockClient.service";
+import { emitForfeitResult, emitPickPhaseStarted, emitResolvedRound } from "../websocket/matchEvents";
 
 const router = Router();
 
@@ -83,6 +85,75 @@ router.post("/mock-clients/matches", requireAuth, async (req, res) => {
 
 /**
  * @openapi
+ * /mock-clients/matches/queued:
+ *   post:
+ *     tags: [Mock Clients]
+ *     summary: Pair the current developer's queued plugin with a mock opponent
+ *     security: [{ BeatKhanaAuth: [] }]
+ *     x-required-roles: [dev]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [mockPlatformId]
+ *             properties:
+ *               mockPlatformId: { type: string }
+ *     responses:
+ *       201: { description: A mock match was created and delivered to the queued plugin. }
+ *       409: { description: The developer is not queued or the mock identity is unavailable. }
+ */
+router.post("/mock-clients/matches/queued", requireAuth, async (req, res) => {
+	if (!req.user?.permissions.includes("role:dev")) {
+		res.status(403).json({ error: { code: "FORBIDDEN", message: "Developer permission is required" } });
+		return;
+	}
+	try {
+		const result = await mockClientService.createQueuedMatch(
+			req.user.guid,
+			typeof req.body?.mockPlatformId === "string" ? req.body.mockPlatformId : "",
+		);
+		const io = req.app.get("socket.io") as Server | undefined;
+		if (io) {
+			const userRoom = `user:${result.pluginUser.guid}`;
+			io.in(userRoom).socketsJoin(`match:${result.match.guid}`);
+			io.to(userRoom).emit("matchCreated", {
+				matchGuid: result.match.guid,
+				red: {
+					guid: result.pluginUser.guid,
+					platformId: result.pluginUser.platformId!,
+					username: result.pluginUser.username,
+					avatarUrl: result.pluginUser.avatarUrl,
+				},
+				blue: {
+					guid: result.mockUser.guid,
+					platformId: result.mockUser.platformId!,
+					username: result.mockUser.username,
+					avatarUrl: result.mockUser.avatarUrl,
+				},
+				initialMaps: result.pluginMaps.map((map) => ({
+					guid: map.guid,
+					hash: map.hash,
+					characteristic: map.characteristic,
+					difficulty: map.difficulty,
+					modifiers: map.modifiers,
+					durationSeconds: map.durationSeconds,
+					maxScore: map.maxScore,
+				})),
+				timerDueAt: result.discardDueAt.toISOString(),
+			});
+		}
+		res.status(201).json(result);
+	} catch (error) {
+		const status = error instanceof Error && "status" in error ? Number(error.status) : 400;
+		const code = error instanceof Error && "code" in error ? String(error.code) : "MOCK_MATCH_NOT_CREATED";
+		res.status(status).json({ error: { code, message: error instanceof Error ? error.message : "Mock match could not be created" } });
+	}
+});
+
+/**
+ * @openapi
  * /mock-clients/{clientGuid}/actions:
  *   post:
  *     tags: [Mock Clients]
@@ -136,13 +207,46 @@ router.post("/mock-clients/:clientGuid/actions", requireAuth, async (req, res) =
 	}
 	try {
 		const action = req.body?.action;
+		const io = req.app.get("socket.io") as Server | undefined;
 		let result: unknown;
 		if (action === "discard" && Array.isArray(req.body?.mapGuids)) {
-			result = await gameplayService.discardMaps(client.matchGuid, client.impersonatedUserGuid, req.body.mapGuids);
+			const actionResult = await gameplayService.discardMaps(client.matchGuid, client.impersonatedUserGuid, req.body.mapGuids);
+			result = actionResult;
+			if (io && actionResult.ready) await emitPickPhaseStarted(io, client.matchGuid);
 		} else if (action === "pick" && typeof req.body?.mapGuid === "string") {
-			result = await gameplayService.selectMap(client.matchGuid, client.impersonatedUserGuid, req.body.mapGuid);
+			const actionResult = await gameplayService.selectMap(client.matchGuid, client.impersonatedUserGuid, req.body.mapGuid);
+			result = actionResult;
+			if (io) {
+				const map = {
+					guid: actionResult.map.guid,
+					hash: actionResult.map.hash,
+					characteristic: actionResult.map.characteristic,
+					difficulty: actionResult.map.difficulty,
+					modifiers: actionResult.map.modifiers,
+					durationSeconds: actionResult.map.durationSeconds,
+					maxScore: actionResult.map.maxScore,
+				};
+				io.to(`match:${client.matchGuid}`).emit("playerSelectedMap", {
+					matchGuid: client.matchGuid,
+					roundNumber: actionResult.round.roundNumber,
+					pickerUserGuid: client.impersonatedUserGuid,
+					map,
+				});
+				io.to(`match:${client.matchGuid}`).emit("roundStarted", {
+					matchGuid: client.matchGuid,
+					roundGuid: actionResult.round.guid,
+					roundNumber: actionResult.round.roundNumber,
+					startsAt: actionResult.round.startedAt.toISOString(),
+				});
+				io.to(`match:${client.matchGuid}`).emit("startMap", {
+					matchGuid: client.matchGuid,
+					roundGuid: actionResult.round.guid,
+					map,
+					scoreDueAt: actionResult.dueAt.toISOString(),
+				});
+			}
 		} else if (action === "score" && typeof req.body?.roundGuid === "string") {
-			result = await gameplayService.submitScore(client.matchGuid, req.body.roundGuid, client.impersonatedUserGuid, {
+			const actionResult = await gameplayService.submitScore(client.matchGuid, req.body.roundGuid, client.impersonatedUserGuid, {
 				rawScore: Number(req.body.rawScore),
 				modifiedScore: Number(req.body.modifiedScore),
 				noFailTriggered: req.body.noFailTriggered === true,
@@ -150,13 +254,18 @@ router.post("/mock-clients/:clientGuid/actions", requireAuth, async (req, res) =
 				missCount: Number(req.body.missCount),
 				fullCombo: req.body.fullCombo === true,
 			});
+			result = actionResult;
+			if (io && actionResult.resolved) await emitResolvedRound(io, actionResult.resolved);
 		} else if (action === "forfeit" || action === "disconnect") {
-			result = await gameplayService.forfeitMatch(
+			const reason = action === "disconnect" ? "mock_client_disconnected" : "mock_client_forfeited";
+			const actionResult = await gameplayService.forfeitMatch(
 				client.matchGuid,
 				client.impersonatedUserGuid,
 				req.user.guid,
-				action === "disconnect" ? "mock_client_disconnected" : "mock_client_forfeited",
+				reason,
 			);
+			result = actionResult;
+			if (io) emitForfeitResult(io, client.matchGuid, actionResult, reason);
 		} else {
 			res.status(400).json({ error: { code: "INVALID_MOCK_ACTION", message: "Action payload is invalid" } });
 			return;

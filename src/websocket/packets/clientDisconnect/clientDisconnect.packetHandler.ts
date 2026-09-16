@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../../../db/db";
-import { matchParticipants } from "../../../../db/schema";
+import { matchParticipants, mockClients } from "../../../../db/schema";
 import { gameplayService } from "../../../services/gameplay.service";
 import { queueService } from "../../../services/queue.service";
 import { emitForfeitResult } from "../../matchEvents";
@@ -20,6 +20,18 @@ export async function forfeitDisconnectedPlayer(socket: AuthenticatedSocket) {
 		with: { match: true },
 	});
 	if (!participant || participant.role === "spectator") return null;
+	if (participant.match.isMock) {
+		const controlledMock = await db.query.mockClients.findFirst({
+			columns: { guid: true },
+			where: and(
+				eq(mockClients.matchGuid, participant.matchGuid),
+				eq(mockClients.impersonatedUserGuid, socket.data.user.guid),
+			),
+		});
+		// A mock identity has no authoritative plugin connection. Only an explicit
+		// action from the mock-client UI may abandon/forfeit on its behalf.
+		if (controlledMock) return null;
+	}
 
 	const reason = "player_disconnected";
 	const result = await gameplayService.forfeitMatch(

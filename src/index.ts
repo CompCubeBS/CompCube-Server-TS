@@ -115,6 +115,7 @@ const io = new Server(socketHttpServer, {
 	},
 	transports: ["websocket", "polling"],
 });
+app.set("socket.io", io);
 initialiseSocketManager(io);
 const replayServer = initialiseReplayRelay(socketHttpServer);
 let restServer: http.Server | null = null;

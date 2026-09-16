@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../../../db/db";
-import { matchParticipants, matches } from "../../../../db/schema";
+import { matchParticipants, matches, mockClients } from "../../../../db/schema";
 import { gameplayService } from "../../../services/gameplay.service";
 import { ServiceError } from "../../../services/serviceError";
 import { emitForfeitResult } from "../../matchEvents";
@@ -29,6 +29,18 @@ export function registerForfeitPacket(socket: AuthenticatedSocket): void {
 			});
 			if (!participant || participant.role === "spectator") {
 				throw new ServiceError("NOT_A_PARTICIPANT", "Only a competitor can forfeit", 403);
+			}
+			if (match.isMock) {
+				const controlledMock = await db.query.mockClients.findFirst({
+					columns: { guid: true },
+					where: and(
+						eq(mockClients.matchGuid, match.guid),
+						eq(mockClients.impersonatedUserGuid, socket.data.user.guid),
+					),
+				});
+				if (controlledMock) {
+					throw new ServiceError("MOCK_UI_REQUIRED", "Forfeit this mock client from the mock-clients page", 409);
+				}
 			}
 			const reason = input.reason?.trim() || "player_forfeited";
 			const result = await gameplayService.forfeitMatch(

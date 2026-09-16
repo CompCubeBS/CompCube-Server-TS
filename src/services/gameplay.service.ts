@@ -40,6 +40,18 @@ export interface GameplayActionContext {
 	timerExpired?: boolean;
 }
 
+/** Separates result presentation from durable ranking writes for test matches. */
+export function matchMmrPolicy(match: {
+	competitive: boolean;
+	isMock: boolean;
+	seasonGuid: string | null;
+}) {
+	return {
+		calculate: Boolean(match.seasonGuid && (match.competitive || match.isMock)),
+		persist: Boolean(match.seasonGuid && match.competitive && !match.isMock),
+	};
+}
+
 function timerTiming(timer: { createdAt: Date; dueAt: Date } | undefined, occurredAt: Date) {
 	if (!timer) return { elapsedMs: null, remainingMs: null };
 	return {
@@ -124,7 +136,10 @@ class GameplayService {
 				throw new ServiceError("PARTICIPANT_NOT_FOUND", "The forfeiting competitor does not exist", 404);
 			}
 			const endedAt = new Date();
-			const calculatedMmrChange = match.competitive && !match.isMock && match.seasonGuid
+			const mmrPolicy = matchMmrPolicy(match);
+			// Mock matches calculate and expose the same result the queue would have produced,
+			// while the persistence block below deliberately leaves real statistics untouched.
+			const calculatedMmrChange = mmrPolicy.calculate
 				? calculateMmrChange(winner.initialMmr, loser.initialMmr, match.kFactor)
 				: 0;
 			const winnerMmrGain = options.winnerMmrGain ?? calculatedMmrChange;
@@ -132,7 +147,7 @@ class GameplayService {
 			if (![winnerMmrGain, loserMmrLoss].every((value) => Number.isInteger(value) && value >= 0)) {
 				throw new ServiceError("INVALID_MMR_CHANGE", "MMR changes must be non-negative integers", 400);
 			}
-			if (match.competitive && !match.isMock && match.seasonGuid) {
+			if (mmrPolicy.persist && match.seasonGuid) {
 				await tx.update(competitiveStatistics).set({
 					currentMmr: sql`GREATEST(0, ${competitiveStatistics.currentMmr} + ${winnerMmrGain})`,
 					wins: sql`${competitiveStatistics.wins} + 1`,
@@ -191,7 +206,7 @@ class GameplayService {
 				inArray(matchTimers.status, ["scheduled", "paused", "processing"]),
 			));
 			let timeoutMinutes = options.timeoutMinutes ?? 0;
-			if (options.disconnectPenalty) {
+			if (options.disconnectPenalty && !match.isMock) {
 				const cutoff = new Date(endedAt.getTime() - 14 * 24 * 60 * 60 * 1000);
 				const recentDisconnects = await tx.query.userModerationActions.findMany({
 					columns: { guid: true },
@@ -884,30 +899,33 @@ class GameplayService {
 			} else {
 				const winner = outcome === "red" ? red : outcome === "blue" ? blue : null;
 				const loser = outcome === "red" ? blue : outcome === "blue" ? red : null;
+				const mmrPolicy = matchMmrPolicy(roundRow.match);
 				let mmrChange = 0;
-				if (winner && loser && roundRow.match.competitive !== false && roundRow.match.seasonGuid) {
-					mmrChange = calculateMmrChange(winner.initialMmr, loser.initialMmr, roundRow.match.kFactor);
-					await tx.update(competitiveStatistics).set({
-						currentMmr: sql`GREATEST(0, ${competitiveStatistics.currentMmr} + ${mmrChange})`,
-						wins: sql`${competitiveStatistics.wins} + 1`,
-						totalGames: sql`${competitiveStatistics.totalGames} + 1`,
-						winStreak: sql`${competitiveStatistics.winStreak} + 1`,
-						bestWinStreak: sql`GREATEST(${competitiveStatistics.bestWinStreak}, ${competitiveStatistics.winStreak} + 1)`,
-						updatedAt: endedAt,
-					}).where(and(
-						eq(competitiveStatistics.seasonGuid, roundRow.match.seasonGuid),
-						eq(competitiveStatistics.userGuid, winner.userGuid),
-					));
-					await tx.update(competitiveStatistics).set({
-						currentMmr: sql`GREATEST(0, ${competitiveStatistics.currentMmr} - ${mmrChange})`,
-						totalGames: sql`${competitiveStatistics.totalGames} + 1`,
-						winStreak: 0,
-						updatedAt: endedAt,
-					}).where(and(
-						eq(competitiveStatistics.seasonGuid, roundRow.match.seasonGuid),
-						eq(competitiveStatistics.userGuid, loser.userGuid),
-					));
-				} else if (roundRow.match.competitive !== false && roundRow.match.seasonGuid) {
+				if (winner && loser && mmrPolicy.calculate) {
+						mmrChange = calculateMmrChange(winner.initialMmr, loser.initialMmr, roundRow.match.kFactor);
+						if (mmrPolicy.persist && roundRow.match.seasonGuid) {
+							await tx.update(competitiveStatistics).set({
+								currentMmr: sql`GREATEST(0, ${competitiveStatistics.currentMmr} + ${mmrChange})`,
+								wins: sql`${competitiveStatistics.wins} + 1`,
+								totalGames: sql`${competitiveStatistics.totalGames} + 1`,
+								winStreak: sql`${competitiveStatistics.winStreak} + 1`,
+								bestWinStreak: sql`GREATEST(${competitiveStatistics.bestWinStreak}, ${competitiveStatistics.winStreak} + 1)`,
+								updatedAt: endedAt,
+						}).where(and(
+							eq(competitiveStatistics.seasonGuid, roundRow.match.seasonGuid),
+							eq(competitiveStatistics.userGuid, winner.userGuid),
+						));
+						await tx.update(competitiveStatistics).set({
+							currentMmr: sql`GREATEST(0, ${competitiveStatistics.currentMmr} - ${mmrChange})`,
+							totalGames: sql`${competitiveStatistics.totalGames} + 1`,
+							winStreak: 0,
+							updatedAt: endedAt,
+						}).where(and(
+							eq(competitiveStatistics.seasonGuid, roundRow.match.seasonGuid),
+							eq(competitiveStatistics.userGuid, loser.userGuid),
+						));
+					}
+				} else if (mmrPolicy.persist && roundRow.match.seasonGuid) {
 					// A draw counts as a played game for both competitors, but neither player gains MMR or a win.
 					await tx.update(competitiveStatistics).set({
 						totalGames: sql`${competitiveStatistics.totalGames} + 1`,
