@@ -16,6 +16,14 @@ function csv(name: string, fallback = ""): string[] {
 	return [...new Set((process.env[name] ?? fallback).split(",").map((value) => value.trim()).filter(Boolean))];
 }
 
+function oauthScopes(name: string, required: readonly string[]): string {
+	const configured = (process.env[name] ?? "")
+		.split(/[\s,]+/)
+		.map((value) => value.trim())
+		.filter(Boolean);
+	return [...new Set([...required, ...configured])].join(" ");
+}
+
 export const config = {
     nodeEnv: process.env.NODE_ENV ?? "development",
     restPort: number("REST_PORT", 7198),
@@ -32,9 +40,9 @@ export const config = {
         authorizeUrl: url("BK_AUTHORIZE_URL", "https://api.beatkhana.com/api/oauth/authorize"),
         callbackUrl: url("BK_CALLBACK_URL", "http://localhost:7198/oauth/callback"),
         linkingUrl: process.env.BK_LINKING_URL?.trim() || "https://beatkhana.com/users/@me/settings#linking",
-        // CompCube access tokens must always be issued for CompCube. Making this configurable
-        // allowed the login flow to request a different scope which its own verifier rejected.
-        scope: "compcube",
+		// BeatKhana requires its REST identity scope in addition to CompCube's audience scope.
+		// Deployment-specific scopes may be added, but neither required scope can be removed.
+		scope: oauthScopes("BK_OAUTH_SCOPE", ["rest:user:read", "compcube"]),
         publicKeyUrl: url("BK_PUBLIC_KEY_URL", `${url("BK_API_URL", "https://api.beatkhana.com/api")}/requestPublicSignature`),
     },
     beatLeaderApiUrl: url("BEATLEADER_API_URL", "https://api.beatleader.xyz"),

@@ -1,4 +1,4 @@
-export const beatKhanaRequiredScope = "rest:user:read" as const;
+export const beatKhanaRequiredOAuthScopes = ["rest:user:read", "compcube"] as const;
 
 export interface BeatKhanaTokenResponse {
     access_token: string;

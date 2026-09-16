@@ -44,8 +44,8 @@ test("accepts a signed, current platform-only CompCube game token", () => {
 	assert.equal(claims.platformId, "76561198000000000");
 });
 
-test("always requests the dedicated CompCube OAuth scope", () => {
-	assert.equal(config.beatKhana.scope, "compcube");
+test("always requests the BeatKhana identity and CompCube OAuth scopes", () => {
+	assert.deepEqual(config.beatKhana.scope.split(" "), ["rest:user:read", "compcube"]);
 });
 
 test("accepts the OAuth-standard signed scope claim", () => {
