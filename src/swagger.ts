@@ -34,6 +34,7 @@ export const swaggerSpec = swaggerJsdoc({
 			{ name: "Rounds", description: "Selected maps and played match rounds" },
 			{ name: "Scores", description: "Player score submissions and accuracy" },
 			{ name: "Moderation", description: "Moderator and administrator match decisions" },
+			{ name: "Reports", description: "Authenticated general player reports and moderator review" },
 			{ name: "Internal", description: "Development-only template endpoints" },
 		],
 		components: {
@@ -42,6 +43,13 @@ export const swaggerSpec = swaggerJsdoc({
 					type: "http",
 					scheme: "bearer",
 					bearerFormat: "BeatKhana access token",
+					description: "A BeatKhana OAuth access token sent as `Authorization: Bearer <token>`.",
+				},
+				SessionCookie: {
+					type: "apiKey",
+					in: "cookie",
+					name: "cc_auth_token",
+					description: "The HttpOnly BeatKhana access-token cookie set by the CompCube OAuth callback. Browser clients must send credentials.",
 				},
 				PoolSecret: {
 					type: "apiKey",
@@ -97,6 +105,59 @@ export const swaggerSpec = swaggerJsdoc({
 						permissions: { type: "array", items: { type: "string" } },
 						banned: { type: "boolean" },
 					},
+				},
+				CreatePlayerReportRequest: {
+					type: "object",
+					required: ["targetUserGuid", "reason", "source"],
+					properties: {
+						targetUserGuid: {
+							type: "string",
+							format: "uuid",
+							description: "CompCube GUID of the player being reported. The sender may report from a profile, as a participant, or as a spectator.",
+						},
+						associatedMatchGuid: {
+							type: "string",
+							format: "uuid",
+							nullable: true,
+							description: "Optional match supplied as supporting context. Match participation is not required.",
+						},
+						reason: {
+							type: "string",
+							description: "Sender-provided explanation for moderator review. Leading and trailing whitespace is removed.",
+						},
+						source: {
+							type: "string",
+							enum: ["website", "plugin"],
+							description: "The official CompCube client surface used to submit the report.",
+						},
+					},
+				},
+				Report: {
+					type: "object",
+					required: ["guid", "matchGuid", "senderUserGuid", "targetUserGuid", "reason", "reportSource", "createdAt", "resolved"],
+					properties: {
+						guid: { type: "string", format: "uuid", description: "Stable report identifier." },
+						matchGuid: { type: "string", format: "uuid", nullable: true, description: "Optional match supplied as supporting context." },
+						senderUserGuid: { type: "string", format: "uuid", description: "Authenticated account that created the report." },
+						targetUserGuid: { type: "string", format: "uuid", description: "Player being reported." },
+						reason: { type: "string", description: "Sender-provided report details." },
+						reportSource: { type: "string", enum: ["website", "plugin"], description: "Official client surface that submitted the report." },
+						createdAt: { type: "string", format: "date-time", description: "UTC creation timestamp." },
+						resolved: { type: "boolean", description: "Whether a moderator has completed review." },
+					},
+				},
+				ReportWithUsers: {
+					allOf: [
+						{ $ref: "#/components/schemas/Report" },
+						{
+							type: "object",
+							required: ["sender", "target"],
+							properties: {
+								sender: { $ref: "#/components/schemas/User" },
+								target: { $ref: "#/components/schemas/User" },
+							},
+						},
+					],
 				},
 				PluginRelease: {
 					type: "object",
